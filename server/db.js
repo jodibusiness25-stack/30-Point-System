@@ -416,6 +416,21 @@ async function ensureFriendAndActivityTables() {
   `);
 }
 
+async function ensurePasswordResetTable() {
+  await run(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      tokenHash TEXT NOT NULL UNIQUE,
+      expiresAtMs INTEGER NOT NULL,
+      usedAtMs INTEGER,
+      requestIp TEXT NOT NULL DEFAULT '',
+      requestUserAgent TEXT NOT NULL DEFAULT '',
+      createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
 async function initDb() {
   await run("PRAGMA journal_mode = WAL");
   await run("PRAGMA synchronous = NORMAL");
@@ -427,6 +442,7 @@ async function initDb() {
   await ensureUserPlayerStateTable();
   await ensureUserSettingsTable();
   await ensureFriendAndActivityTables();
+  await ensurePasswordResetTable();
 
   await run(
     "CREATE INDEX IF NOT EXISTS idx_daily_logs_user_date ON daily_logs(userId, logDate DESC)"
@@ -445,6 +461,12 @@ async function initDb() {
   );
   await run(
     "CREATE INDEX IF NOT EXISTS idx_activity_invites_to_status ON activity_session_invites(toUserId, status, createdAt DESC)"
+  );
+  await run(
+    "CREATE INDEX IF NOT EXISTS idx_password_resets_user_created ON password_reset_tokens(userId, createdAt DESC)"
+  );
+  await run(
+    "CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_reset_tokens(expiresAtMs, usedAtMs)"
   );
 }
 

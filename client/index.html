@@ -40,6 +40,21 @@
             <button type="button" class="icon-btn auth-btn" id="loginBtn" aria-label="Login" title="Login">Login</button>
             <button type="button" class="icon-btn auth-btn" id="registerBtn" aria-label="Register" title="Register">Register</button>
           </div>
+          <div class="auth-recovery">
+            <button type="button" class="auth-link-btn" id="forgotPasswordBtn">Forgot password?</button>
+            <button type="button" class="auth-link-btn" id="showResetPanelBtn">Have reset code?</button>
+          </div>
+          <div id="resetPanel" class="auth-reset-panel hidden">
+            <label>
+              Reset Code
+              <input type="text" id="resetTokenInput" placeholder="Paste reset code" />
+            </label>
+            <label>
+              New Password
+              <input type="password" id="resetNewPasswordInput" minlength="8" placeholder="New password" />
+            </label>
+            <button type="button" class="icon-btn auth-btn" id="resetPasswordBtn" aria-label="Reset password" title="Reset password">Reset Password</button>
+          </div>
           <p id="authMessage" class="message"></p>
         </form>
       </div>
@@ -176,43 +191,80 @@
           </div>
 
           <div class="progress-cluster">
-            <div id="strataContainer" class="strata-container" aria-hidden="true"></div>
-            <div class="bar thin">
-              <div id="dailyProgressFill" class="bar-fill"></div>
-            </div>
-            <div class="level-row">
-              <span id="levelProgressText">Level 1 • 0 / 30</span>
-              <div class="bar thin level">
-                <div id="levelProgressFill" class="bar-fill"></div>
-                <div id="levelShimmer" class="level-shimmer"></div>
-              </div>
-            </div>
-            <div class="dial-goal-wrap">
-              <div class="dial-goal-head">
-                <span id="dialGoalStatus">Dial Goal: Not set</span>
-                <span id="dialGoalMeta"></span>
-              </div>
-              <div id="dialStrataContainer" class="strata-container" aria-hidden="true"></div>
+            <div class="progress-left">
+              <div id="strataContainer" class="strata-container" aria-hidden="true"></div>
               <div class="bar thin">
-                <div id="dialGoalFill" class="bar-fill dial"></div>
+                <div id="dailyProgressFill" class="bar-fill"></div>
+              </div>
+              <div class="level-row">
+                <span id="levelProgressText">Level 1 • 0 / 30</span>
+                <div class="bar thin level">
+                  <div id="levelProgressFill" class="bar-fill"></div>
+                  <div id="levelShimmer" class="level-shimmer"></div>
+                </div>
+              </div>
+              <div class="dial-goal-wrap">
+                <div class="dial-goal-head">
+                  <span id="dialGoalStatus">Dial Goal: Not set</span>
+                  <span id="dialGoalMeta"></span>
+                </div>
+                <div id="dialStrataContainer" class="strata-container" aria-hidden="true"></div>
+                <div class="bar thin">
+                  <div id="dialGoalFill" class="bar-fill dial"></div>
+                </div>
+              </div>
+              <div class="appt-goal-wrap">
+                <div class="dial-goal-head">
+                  <span id="apptDailyStatus">Daily Appointments: 0 / 0</span>
+                  <span id="apptDailyMeta"></span>
+                </div>
+                <div class="bar thin">
+                  <div id="apptDailyFill" class="bar-fill appt"></div>
+                </div>
+                <div class="dial-goal-head">
+                  <span id="apptWeeklyStatus">Weekly Appointments: 0 / 0</span>
+                  <span id="apptWeeklyMeta"></span>
+                </div>
+                <div class="bar thin">
+                  <div id="apptWeeklyFill" class="bar-fill appt"></div>
+                </div>
               </div>
             </div>
-            <div class="appt-goal-wrap">
-              <div class="dial-goal-head">
-                <span id="apptDailyStatus">Daily Appointments: 0 / 0</span>
-                <span id="apptDailyMeta"></span>
+            <section id="calcPanel" class="calc-panel-inline progress-calc-slot" aria-hidden="false">
+              <header class="calc-head">
+                <strong>Quick Calc</strong>
+              </header>
+              <div class="calc-display-wrap">
+                <input id="calcDisplay" class="calc-display" type="text" inputmode="decimal" placeholder="0" />
               </div>
-              <div class="bar thin">
-                <div id="apptDailyFill" class="bar-fill appt"></div>
+              <div class="calc-keypad">
+                <button type="button" class="calc-key" data-calc="7">7</button>
+                <button type="button" class="calc-key" data-calc="8">8</button>
+                <button type="button" class="calc-key" data-calc="9">9</button>
+                <button type="button" class="calc-key op" data-calc="/">÷</button>
+                <button type="button" class="calc-key" data-calc="4">4</button>
+                <button type="button" class="calc-key" data-calc="5">5</button>
+                <button type="button" class="calc-key" data-calc="6">6</button>
+                <button type="button" class="calc-key op" data-calc="*">×</button>
+                <button type="button" class="calc-key" data-calc="1">1</button>
+                <button type="button" class="calc-key" data-calc="2">2</button>
+                <button type="button" class="calc-key" data-calc="3">3</button>
+                <button type="button" class="calc-key op" data-calc="-">−</button>
+                <button type="button" class="calc-key" data-calc="0">0</button>
+                <button type="button" class="calc-key" data-calc=".">.</button>
+                <button type="button" class="calc-key equals" id="calcEqualsBtn">=</button>
+                <button type="button" class="calc-key op" data-calc="+">+</button>
               </div>
-              <div class="dial-goal-head">
-                <span id="apptWeeklyStatus">Weekly Appointments: 0 / 0</span>
-                <span id="apptWeeklyMeta"></span>
+              <div class="calc-actions">
+                <button type="button" class="icon-btn" id="calcClearBtn" aria-label="Clear calculator" title="Clear">
+                  <span aria-hidden="true">C</span>
+                </button>
               </div>
-              <div class="bar thin">
-                <div id="apptWeeklyFill" class="bar-fill appt"></div>
+              <div class="calc-history-wrap">
+                <p>Recent (5 max)</p>
+                <ul id="calcHistory" class="calc-history"></ul>
               </div>
-            </div>
+            </section>
           </div>
           <div id="levelToastAnchor" class="toast-anchor"></div>
           <p id="message" class="message"></p>
@@ -229,9 +281,14 @@
               <h2>Shared Activity</h2>
               <p id="activityModeLabel" class="sub">Start a session with teammates</p>
             </div>
-            <button type="button" class="icon-btn" id="startSessionBtn" aria-label="Start shared session" title="Start session">
-              <span aria-hidden="true">▶</span>
-            </button>
+            <div class="activity-head-actions">
+              <button type="button" class="icon-btn" id="activityHistoryQuickBtn" aria-label="Open session history" title="Session history">
+                <span aria-hidden="true">🗓</span>
+              </button>
+              <button type="button" class="icon-btn" id="startSessionBtn" aria-label="Start shared session" title="Start session">
+                <span aria-hidden="true">▶</span>
+              </button>
+            </div>
           </div>
           <div class="friend-bar">
             <label>
@@ -298,6 +355,7 @@
       </section>
 
         <section class="card support-grid widget-card" data-widget-id="support">
+          <h2>Goal Settings</h2>
           <label>
             Daily Dial Goal
             <input type="number" id="dialGoal" name="dialGoal" min="0" value="100" />
@@ -314,51 +372,10 @@
             FYC Target
             <input type="number" id="fycTarget" name="fycTarget" min="0" value="0" />
           </label>
-          <label>
-            FYC Completed
-            <input type="number" id="fycCompleted" name="fycCompleted" min="0" value="0" />
-          </label>
-          <label class="notes">
-            FYC Notes
-            <textarea id="fycNotes" name="fycNotes" rows="2" placeholder="Optional notes"></textarea>
-          </label>
+          <input type="hidden" id="fycCompleted" name="fycCompleted" value="0" />
+          <input type="hidden" id="fycNotes" name="fycNotes" value="" />
         </section>
 
-        <section id="calcPanel" class="card calc-panel-inline widget-card" data-widget-id="calculator" aria-hidden="false">
-          <header class="calc-head">
-            <strong>Quick Calc</strong>
-          </header>
-          <div class="calc-display-wrap">
-            <input id="calcDisplay" class="calc-display" type="text" inputmode="decimal" placeholder="0" />
-          </div>
-          <div class="calc-keypad">
-            <button type="button" class="calc-key" data-calc="7">7</button>
-            <button type="button" class="calc-key" data-calc="8">8</button>
-            <button type="button" class="calc-key" data-calc="9">9</button>
-            <button type="button" class="calc-key op" data-calc="/">÷</button>
-            <button type="button" class="calc-key" data-calc="4">4</button>
-            <button type="button" class="calc-key" data-calc="5">5</button>
-            <button type="button" class="calc-key" data-calc="6">6</button>
-            <button type="button" class="calc-key op" data-calc="*">×</button>
-            <button type="button" class="calc-key" data-calc="1">1</button>
-            <button type="button" class="calc-key" data-calc="2">2</button>
-            <button type="button" class="calc-key" data-calc="3">3</button>
-            <button type="button" class="calc-key op" data-calc="-">−</button>
-            <button type="button" class="calc-key" data-calc="0">0</button>
-            <button type="button" class="calc-key" data-calc=".">.</button>
-            <button type="button" class="calc-key equals" id="calcEqualsBtn">=</button>
-            <button type="button" class="calc-key op" data-calc="+">+</button>
-          </div>
-          <div class="calc-actions">
-            <button type="button" class="icon-btn" id="calcClearBtn" aria-label="Clear calculator" title="Clear">
-              <span aria-hidden="true">C</span>
-            </button>
-          </div>
-          <div class="calc-history-wrap">
-            <p>Recent (5 max)</p>
-            <ul id="calcHistory" class="calc-history"></ul>
-          </div>
-        </section>
       </form>
 
       <section id="historyCard" class="card history-card hidden">
@@ -388,6 +405,29 @@
 
       <section id="sessionsHistoryCard" class="card history-card hidden">
         <h2>Activity Sessions</h2>
+        <div class="session-calendar-head">
+          <button type="button" class="icon-btn" id="sessionCalPrevBtn" aria-label="Previous month" title="Previous month">
+            <span aria-hidden="true">‹</span>
+          </button>
+          <span id="sessionCalMonthLabel" class="calendar-month">Month</span>
+          <button type="button" class="icon-btn" id="sessionCalNextBtn" aria-label="Next month" title="Next month">
+            <span aria-hidden="true">›</span>
+          </button>
+          <button type="button" class="icon-btn" id="sessionCalTodayBtn" aria-label="Jump to today" title="Today">
+            <span aria-hidden="true">•</span>
+          </button>
+        </div>
+        <div class="calendar-weekdays">
+          <span>Mon</span>
+          <span>Tue</span>
+          <span>Wed</span>
+          <span>Thu</span>
+          <span>Fri</span>
+          <span>Sat</span>
+          <span>Sun</span>
+        </div>
+        <div id="sessionCalendarGrid" class="session-calendar-grid"></div>
+        <div id="sessionCalendarDetail" class="calendar-detail">Select a day to view saved session details.</div>
         <div class="table-wrap">
           <table id="sessionsTable">
             <thead>
@@ -484,6 +524,15 @@
           <span aria-hidden="true">→</span>
         </button>
       </div>
+
+      <section class="chart-card metric-calendar-card">
+        <h4>Stat Calendar</h4>
+        <div class="metric-calendar-weekdays">
+          <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span>
+        </div>
+        <div id="metricCalendarGrid" class="metric-calendar-grid"></div>
+        <p id="metricCalendarMeta" class="small-muted">Daily intensity for this metric in selected period.</p>
+      </section>
 
       <section class="chart-card">
         <h4>Daily Counts</h4>

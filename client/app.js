@@ -44,12 +44,16 @@ const state = {
     selectedConnectionUserId: null,
     sessions: [],
     byDate: {},
-    leaderboardRanks: {}
+    leaderboardRanks: {},
+    leaderboardSignature: ""
   },
   calendar: { year: null, month: null, selectedDate: null },
+  sessionCalendar: { year: null, month: null, selectedDate: null },
+  drawer: { requestSeq: 0 },
   calculator: { history: [] },
   auth: { token: null, user: null },
   profile: null,
+  selectedDaySyncToken: "",
   layout: { editMode: false, order: [], heights: {} },
   dashboardInitialized: false
 };
@@ -68,6 +72,12 @@ const authPassword = document.getElementById("authPassword");
 const authMessage = document.getElementById("authMessage");
 const loginBtn = document.getElementById("loginBtn");
 const registerBtn = document.getElementById("registerBtn");
+const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
+const showResetPanelBtn = document.getElementById("showResetPanelBtn");
+const resetPanel = document.getElementById("resetPanel");
+const resetTokenInput = document.getElementById("resetTokenInput");
+const resetNewPasswordInput = document.getElementById("resetNewPasswordInput");
+const resetPasswordBtn = document.getElementById("resetPasswordBtn");
 const layoutEditBtn = document.getElementById("layoutEditBtn");
 const profileChip = document.getElementById("profileChip");
 const profileChipInitials = document.getElementById("profileChipInitials");
@@ -112,8 +122,15 @@ const historyBtn = document.getElementById("historyBtn");
 const sessionsBtn = document.getElementById("sessionsBtn");
 const sessionsHistoryCard = document.getElementById("sessionsHistoryCard");
 const sessionsTableBody = document.querySelector("#sessionsTable tbody");
+const sessionCalPrevBtn = document.getElementById("sessionCalPrevBtn");
+const sessionCalNextBtn = document.getElementById("sessionCalNextBtn");
+const sessionCalTodayBtn = document.getElementById("sessionCalTodayBtn");
+const sessionCalMonthLabelEl = document.getElementById("sessionCalMonthLabel");
+const sessionCalendarGridEl = document.getElementById("sessionCalendarGrid");
+const sessionCalendarDetailEl = document.getElementById("sessionCalendarDetail");
 const activityWidget = document.getElementById("activityWidget");
 const activityModeLabel = document.getElementById("activityModeLabel");
+const activityHistoryQuickBtn = document.getElementById("activityHistoryQuickBtn");
 const startSessionBtn = document.getElementById("startSessionBtn");
 const incomingInvitesEl = document.getElementById("incomingInvites");
 const friendRequestsEl = document.getElementById("friendRequests");
@@ -160,6 +177,8 @@ const customRangeWrap = document.getElementById("customRangeWrap");
 const customFromInput = document.getElementById("customFrom");
 const customToInput = document.getElementById("customTo");
 const applyCustomBtn = document.getElementById("applyCustomBtn");
+const metricCalendarGridEl = document.getElementById("metricCalendarGrid");
+const metricCalendarMetaEl = document.getElementById("metricCalendarMeta");
 const profileDrawer = document.getElementById("profileDrawer");
 const profileBackdrop = document.getElementById("profileBackdrop");
 const profileCloseBtn = document.getElementById("profileCloseBtn");
@@ -361,6 +380,57 @@ async function authLoginOrRegister(mode) {
   }
 }
 
+async function requestPasswordReset() {
+  const email = String(authEmail.value || "").trim().toLowerCase();
+  if (!email) {
+    showAuthMessage("Enter your email first, then request reset.", true);
+    return;
+  }
+  try {
+    const { response, data } = await apiFetch("/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
+    if (!response.ok) {
+      throw new Error(data?.error || "Could not request reset");
+    }
+    const tokenHint = data?.resetToken ? ` Code: ${data.resetToken}` : "";
+    showAuthMessage(`${data?.message || "Reset requested."}${tokenHint}`);
+    if (resetPanel) resetPanel.classList.remove("hidden");
+    if (data?.resetToken && resetTokenInput) resetTokenInput.value = data.resetToken;
+  } catch (error) {
+    showAuthMessage(error.message || "Could not request reset", true);
+  }
+}
+
+async function completePasswordReset() {
+  const token = String(resetTokenInput?.value || "").trim();
+  const newPassword = String(resetNewPasswordInput?.value || "");
+  if (!token) {
+    showAuthMessage("Reset code is required.", true);
+    return;
+  }
+  if (newPassword.length < 8) {
+    showAuthMessage("New password must be at least 8 characters.", true);
+    return;
+  }
+  try {
+    const { response, data } = await apiFetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, newPassword })
+    });
+    if (!response.ok) {
+      throw new Error(data?.error || "Password reset failed");
+    }
+    if (resetNewPasswordInput) resetNewPasswordInput.value = "";
+    showAuthMessage(data?.message || "Password reset complete. Login with your new password.");
+  } catch (error) {
+    showAuthMessage(error.message || "Password reset failed", true);
+  }
+}
+
 async function verifyAuthToken() {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   if (!token) {
@@ -384,6 +454,27 @@ function setupAuthEvents() {
     event.preventDefault();
     authLoginOrRegister("login");
   });
+  if (forgotPasswordBtn) {
+    forgotPasswordBtn.addEventListener("click", requestPasswordReset);
+  }
+  if (showResetPanelBtn) {
+    showResetPanelBtn.addEventListener("click", () => {
+      if (!resetPanel) return;
+      resetPanel.classList.toggle("hidden");
+      if (!resetPanel.classList.contains("hidden") && resetTokenInput) resetTokenInput.focus();
+    });
+  }
+  if (resetPasswordBtn) {
+    resetPasswordBtn.addEventListener("click", completePasswordReset);
+  }
+  if (resetNewPasswordInput) {
+    resetNewPasswordInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        completePasswordReset();
+      }
+    });
+  }
   logoutBtn.addEventListener("click", () => {
     setAuth(null, null);
     closeProfileDrawer();
@@ -519,6 +610,179 @@ function setupThemeModeEvents() {
   });
 }
 
+function widgetCards() {
+  return Array.from(form.querySelectorAll(".widget-card[data-widget-id]"));
+}
+
+function ensureWidgetHandles() {
+  widgetCards().forEach((card) => {
+    if (card.querySelector(".widget-handle")) return;
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "widget-handle";
+    handle.setAttribute("aria-label", "Drag widget");
+    handle.title = "Drag widget";
+    handle.innerHTML = "⋮⋮";
+    card.prepend(handle);
+  });
+}
+
+function readLayoutFromStorage() {
+  try {
+    const raw = localStorage.getItem(WIDGET_LAYOUT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      order: Array.isArray(parsed.order) ? parsed.order : [],
+      heights: parsed.heights && typeof parsed.heights === "object" ? parsed.heights : {}
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveLayoutToStorage() {
+  const cards = widgetCards();
+  const order = cards.map((card) => card.dataset.widgetId).filter(Boolean);
+  const heights = {};
+  cards.forEach((card) => {
+    const id = card.dataset.widgetId;
+    if (!id) return;
+    heights[id] = Math.max(120, Math.round(card.getBoundingClientRect().height));
+  });
+  state.layout.order = order;
+  state.layout.heights = heights;
+  try {
+    localStorage.setItem(WIDGET_LAYOUT_KEY, JSON.stringify({ order, heights }));
+  } catch {
+    // ignore localStorage failure
+  }
+}
+
+function applyLayoutFromStorage() {
+  const saved = readLayoutFromStorage();
+  if (!saved) return;
+  state.layout.order = saved.order;
+  state.layout.heights = saved.heights;
+  const cards = widgetCards();
+  const map = new Map(cards.map((card) => [card.dataset.widgetId, card]));
+  const fragment = document.createDocumentFragment();
+  saved.order.forEach((id) => {
+    const card = map.get(id);
+    if (!card) return;
+    fragment.appendChild(card);
+    map.delete(id);
+  });
+  map.forEach((card) => fragment.appendChild(card));
+  form.appendChild(fragment);
+  widgetCards().forEach((card) => {
+    const id = card.dataset.widgetId;
+    const h = Number(saved.heights?.[id] || 0);
+    if (h > 0) {
+      card.style.minHeight = `${Math.max(120, h)}px`;
+    }
+  });
+}
+
+function clearDragState() {
+  widgetCards().forEach((card) => {
+    card.classList.remove("dragging", "drag-target");
+  });
+}
+
+function setLayoutEditMode(enabled) {
+  state.layout.editMode = Boolean(enabled);
+  if (state.layout.editMode) {
+    closeDrawer();
+    closeProfileDrawer();
+  }
+  document.body.classList.toggle("layout-edit", state.layout.editMode);
+  if (layoutEditBtn) {
+    layoutEditBtn.setAttribute("aria-pressed", state.layout.editMode ? "true" : "false");
+    layoutEditBtn.title = state.layout.editMode ? "Done Customizing" : "Customize Layout";
+  }
+  widgetCards().forEach((card) => {
+    card.draggable = state.layout.editMode;
+  });
+  if (!state.layout.editMode) {
+    clearDragState();
+    if (layoutResizeObserver) {
+      layoutResizeObserver.disconnect();
+      layoutResizeObserver = null;
+    }
+    saveLayoutToStorage();
+    return;
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    let resizeSaveTimer = null;
+    layoutResizeObserver = new ResizeObserver(() => {
+      if (resizeSaveTimer) clearTimeout(resizeSaveTimer);
+      resizeSaveTimer = setTimeout(saveLayoutToStorage, 180);
+    });
+    widgetCards().forEach((card) => layoutResizeObserver.observe(card));
+  }
+}
+
+function setupLayoutEditor() {
+  if (!layoutEditBtn) return;
+  ensureWidgetHandles();
+  applyLayoutFromStorage();
+  setLayoutEditMode(false);
+
+  layoutEditBtn.addEventListener("click", () => {
+    setLayoutEditMode(!state.layout.editMode);
+  });
+
+  form.addEventListener("dragstart", (event) => {
+    if (!state.layout.editMode) return;
+    const handle = event.target.closest(".widget-handle");
+    if (!handle) {
+      event.preventDefault();
+      return;
+    }
+    const card = handle.closest(".widget-card[data-widget-id]");
+    if (!card) return;
+    draggedWidgetId = card.dataset.widgetId || null;
+    card.classList.add("dragging");
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", draggedWidgetId || "");
+    }
+  });
+
+  form.addEventListener("dragover", (event) => {
+    if (!state.layout.editMode || !draggedWidgetId) return;
+    const overCard = event.target.closest(".widget-card[data-widget-id]");
+    if (!overCard || overCard.dataset.widgetId === draggedWidgetId) return;
+    event.preventDefault();
+    clearDragState();
+    overCard.classList.add("drag-target");
+  });
+
+  form.addEventListener("drop", (event) => {
+    if (!state.layout.editMode || !draggedWidgetId) return;
+    const overCard = event.target.closest(".widget-card[data-widget-id]");
+    const draggedCard = form.querySelector(`.widget-card[data-widget-id="${draggedWidgetId}"]`);
+    if (!overCard || !draggedCard || overCard === draggedCard) return;
+    event.preventDefault();
+    const rect = overCard.getBoundingClientRect();
+    const placeAfter = event.clientY > rect.top + rect.height / 2;
+    if (placeAfter) {
+      overCard.insertAdjacentElement("afterend", draggedCard);
+    } else {
+      overCard.insertAdjacentElement("beforebegin", draggedCard);
+    }
+    clearDragState();
+    saveLayoutToStorage();
+  });
+
+  form.addEventListener("dragend", () => {
+    draggedWidgetId = null;
+    clearDragState();
+  });
+}
+
 function buildMetricTiles() {
   const dialsTile = `
     <article class="metric-tile dials-tile no-analytics" data-analytics="false">
@@ -581,6 +845,70 @@ function getFormPayload() {
     payload[metric.key] = toInt(formData.get(metric.key));
   });
   return payload;
+}
+
+function promptApplicationDetails() {
+  const leadName = window.prompt("Application name:");
+  if (leadName === null) return null;
+  const cleanName = String(leadName).trim();
+  if (!cleanName) {
+    showMessage("Application name is required.", true);
+    return null;
+  }
+
+  const estimatedRaw = window.prompt("Estimated FYC amount (whole dollars):", "0");
+  if (estimatedRaw === null) return null;
+  const estimated = toInt(estimatedRaw);
+  return { name: cleanName, estimatedFyc: estimated };
+}
+
+function appendApplicationFromPrompt() {
+  const details = promptApplicationDetails();
+  if (!details) return false;
+
+  const applicationsInput = document.getElementById("applications");
+  const fycTargetInput = document.getElementById("fycTarget");
+  const fycNotesInput = document.getElementById("fycNotes");
+  if (!applicationsInput || !fycTargetInput) return false;
+
+  applicationsInput.value = String(toInt(applicationsInput.value) + 1);
+  fycTargetInput.value = String(toInt(fycTargetInput.value) + details.estimatedFyc);
+
+  if (fycNotesInput) {
+    const existing = String(fycNotesInput.value || "").trim();
+    const entries = existing ? existing.split(" | ").filter(Boolean) : [];
+    entries.push(`${details.name} ($${details.estimatedFyc})`);
+    fycNotesInput.value = entries.slice(-20).join(" | ");
+  }
+
+  return true;
+}
+
+function removeLastApplicationEntry() {
+  const applicationsInput = document.getElementById("applications");
+  if (!applicationsInput) return false;
+  const current = toInt(applicationsInput.value);
+  if (current <= 0) return false;
+  applicationsInput.value = String(current - 1);
+
+  const fycTargetInput = document.getElementById("fycTarget");
+  const fycNotesInput = document.getElementById("fycNotes");
+  if (!fycTargetInput || !fycNotesInput) return true;
+
+  const entries = String(fycNotesInput.value || "")
+    .split(" | ")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!entries.length) return true;
+
+  const popped = entries.pop();
+  fycNotesInput.value = entries.join(" | ");
+
+  const match = popped.match(/\(\$(\d+)\)$/);
+  if (!match) return true;
+  const lastAmount = toInt(match[1]);
+  fycTargetInput.value = String(Math.max(0, toInt(fycTargetInput.value) - lastAmount));
+  return true;
 }
 
 function weekStartMondayIso(isoDate) {
@@ -737,11 +1065,21 @@ function updatePointsPie(metricPoints, totalXP) {
   if (!pointsPieEl) return;
   if (!totalXP || totalXP <= 0) {
     pointsPieEl.style.background =
-      "radial-gradient(circle at center, color-mix(in srgb, var(--card) 96%, var(--bg)) 42%, transparent 43%), conic-gradient(#2f66b8 0deg, #2f66b8 360deg)";
+      "radial-gradient(circle at center, color-mix(in srgb, var(--card) 96%, var(--bg)) 42%, transparent 43%), conic-gradient(#d4af37 0deg, #d4af37 360deg)";
     pointsPieEl.title = "No points yet";
     return;
   }
-  const palette = ["#2f66b8", "#34c6b3", "#f3b15a", "#f34f8f", "#7b8fb6", "#49c887", "#a678e2"];
+  const css = getComputedStyle(document.body);
+  const v = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  const palette = [
+    "#d4af37",
+    v("--accent", "#34c6b3"),
+    v("--primary-2", "#2f66b8"),
+    v("--warning", "#f3b15a"),
+    v("--success", "#49c887"),
+    v("--primary", "#1b315a"),
+    v("--muted", "#7b8fb6")
+  ];
   const entries = METRICS.map((metric, idx) => ({
     label: metric.label,
     value: Math.max(0, Number(metricPoints[metric.key] || 0)),
@@ -941,12 +1279,18 @@ function applyLogToForm(row) {
       rowDialGoal > 0 ? rowDialGoal : state.settings.defaultDialGoal ?? 100
     );
   }
+  state.selectedDaySyncToken = `${row.logDate}|${row.saveRevision || 0}|${row.updatedAt || ""}`;
 }
 
 function applySelectedDateFromHistory() {
   if (!isValidLogDate(dateInput.value)) return;
   const row = state.history.find((item) => item.logDate === dateInput.value);
-  if (!row) return;
+  if (!row) {
+    state.selectedDaySyncToken = "";
+    return;
+  }
+  const nextToken = `${row.logDate}|${row.saveRevision || 0}|${row.updatedAt || ""}`;
+  if (nextToken === state.selectedDaySyncToken) return;
   applyLogToForm(row);
   updateLiveUI({ markDirty: false });
 }
@@ -1149,8 +1493,40 @@ function formatDateTimeShort(value) {
   });
 }
 
+function ordinalPlace(num) {
+  const n = Number(num || 0);
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const rem10 = n % 10;
+  if (rem10 === 1) return `${n}st`;
+  if (rem10 === 2) return `${n}nd`;
+  if (rem10 === 3) return `${n}rd`;
+  return `${n}th`;
+}
+
 function currentUserId() {
   return Number(state.auth.user?.id || 0);
+}
+
+function shouldShowTeamLeadStar(person) {
+  if (!person || typeof person !== "object") return false;
+  const viewerTeamId = Number(state.auth.user?.teamId || 0);
+  const personTeamId = Number(person.teamId || 0);
+  const sameTeam = viewerTeamId > 0 && personTeamId > 0 && viewerTeamId === personTeamId;
+  if (!sameTeam) return false;
+  const personRole = String(person.roleTitle || "").trim();
+  if (personRole === "Team Lead") return true;
+  const personUserId = Number(person.userId || person.id || 0);
+  const viewerIsLead = String(state.auth.user?.roleTitle || "").trim() === "Team Lead";
+  return personUserId > 0 && personUserId === currentUserId() && viewerIsLead;
+}
+
+function renderActivityPersonName(person) {
+  const baseName = escapeHtml(person?.displayName || person?.email || "User");
+  if (!shouldShowTeamLeadStar(person)) {
+    return `<span class="activity-name-inline">${baseName}</span>`;
+  }
+  return `<span class="activity-name-inline">${baseName}<span class="activity-lead-star" aria-label="Team Lead" title="Team Lead">&#9733;</span></span>`;
 }
 
 function updateActivityModeClass() {
@@ -1214,35 +1590,129 @@ function renderSessionHistory() {
   const sessions = state.activity.sessions || [];
   if (!sessions.length) {
     sessionsTableBody.innerHTML = `<tr><td colspan="7">No shared sessions yet.</td></tr>`;
+  } else {
+    sessionsTableBody.innerHTML = sessions
+      .map((session) => {
+        const participants = Array.isArray(session.participants) ? session.participants : [];
+        const leaderboard = Array.isArray(session.leaderboard) ? session.leaderboard : [];
+        const leaderboardText = leaderboard.length
+          ? leaderboard
+              .slice(0, 5)
+              .map((row, idx) => `${idx + 1}. ${row.displayName || row.email} (${toInt(row.score)})`)
+              .join(" | ")
+          : "-";
+        const duration = formatClockDuration(session.startedAt, session.endedAt);
+        const participantNames = participants
+          .map((p) => p.displayName || p.email)
+          .join(", ");
+        return `
+          <tr>
+            <td>${escapeHtml(session.name)}</td>
+            <td>${escapeHtml(session.status)}</td>
+            <td>${escapeHtml(formatDateTimeShort(session.startedAt))}</td>
+            <td>${escapeHtml(formatDateTimeShort(session.endedAt))}</td>
+            <td>${duration}</td>
+            <td>${escapeHtml(participantNames || "-")}</td>
+            <td>${escapeHtml(leaderboardText)}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  }
+  renderSessionCalendar();
+}
+
+function setSessionCalendarFromDate(isoDate) {
+  const date = parseIsoDate(isoDate || state.settings.today || todayISODate());
+  state.sessionCalendar.year = date.getUTCFullYear();
+  state.sessionCalendar.month = date.getUTCMonth();
+  state.sessionCalendar.selectedDate = formatIsoDateUTC(date);
+}
+
+function renderSessionCalendarDetail(logDate) {
+  if (!sessionCalendarDetailEl) return;
+  if (!logDate) {
+    sessionCalendarDetailEl.textContent = "Select a day to view saved session details.";
     return;
   }
-  sessionsTableBody.innerHTML = sessions
+  const sessions = state.activity.byDate?.[logDate] || [];
+  if (!sessions.length) {
+    sessionCalendarDetailEl.textContent = `${logDate}: No saved sessions.`;
+    return;
+  }
+  sessionCalendarDetailEl.innerHTML = sessions
     .map((session) => {
-      const participants = Array.isArray(session.participants) ? session.participants : [];
-      const leaderboard = Array.isArray(session.leaderboard) ? session.leaderboard : [];
-      const leaderboardText = leaderboard.length
-        ? leaderboard
-            .slice(0, 5)
-            .map((row, idx) => `${idx + 1}. ${row.displayName || row.email} (${toInt(row.score)})`)
-            .join(" | ")
-        : "-";
-      const duration = formatClockDuration(session.startedAt, session.endedAt);
-      const participantNames = participants
+      const winner = session.leaderboard?.[0];
+      const winnerText = winner
+        ? `${winner.displayName || winner.email} (${toInt(winner.score)} pts)`
+        : "No winner";
+      const participants = (session.participants || [])
         .map((p) => p.displayName || p.email)
         .join(", ");
-      return `
-        <tr>
-          <td>${escapeHtml(session.name)}</td>
-          <td>${escapeHtml(session.status)}</td>
-          <td>${escapeHtml(formatDateTimeShort(session.startedAt))}</td>
-          <td>${escapeHtml(formatDateTimeShort(session.endedAt))}</td>
-          <td>${duration}</td>
-          <td>${escapeHtml(participantNames || "-")}</td>
-          <td>${escapeHtml(leaderboardText)}</td>
-        </tr>
-      `;
+      return `<article class="calendar-session-card">
+        <p><strong>${escapeHtml(session.name)}</strong> • ${escapeHtml(session.status)}</p>
+        <p>Start: ${escapeHtml(formatDateTimeShort(session.startedAt))} • End: ${escapeHtml(formatDateTimeShort(session.endedAt))}</p>
+        <p>Duration: ${escapeHtml(formatClockDuration(session.startedAt, session.endedAt))}</p>
+        <p>Winner: ${escapeHtml(winnerText)}</p>
+        <p>Participants: ${escapeHtml(participants || "-")}</p>
+      </article>`;
     })
     .join("");
+}
+
+function renderSessionCalendar() {
+  if (!sessionCalendarGridEl || !sessionCalMonthLabelEl) return;
+  if (state.sessionCalendar.year === null || state.sessionCalendar.month === null) {
+    setSessionCalendarFromDate(state.settings.today || todayISODate());
+  }
+  const year = state.sessionCalendar.year;
+  const month = state.sessionCalendar.month;
+  sessionCalMonthLabelEl.textContent = monthName(year, month);
+  const first = new Date(Date.UTC(year, month, 1));
+  const firstWeekday = (first.getUTCDay() + 6) % 7;
+  const monthDays = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const prevMonthDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells = [];
+
+  for (let i = 0; i < 42; i += 1) {
+    let dayNum;
+    let cellMonth = month;
+    let cellYear = year;
+    let outside = false;
+    if (i < firstWeekday) {
+      outside = true;
+      dayNum = prevMonthDays - firstWeekday + i + 1;
+      cellMonth = month - 1;
+      if (cellMonth < 0) {
+        cellMonth = 11;
+        cellYear -= 1;
+      }
+    } else if (i >= firstWeekday + monthDays) {
+      outside = true;
+      dayNum = i - (firstWeekday + monthDays) + 1;
+      cellMonth = month + 1;
+      if (cellMonth > 11) {
+        cellMonth = 0;
+        cellYear += 1;
+      }
+    } else {
+      dayNum = i - firstWeekday + 1;
+    }
+    const cellDate = formatIsoDateUTC(new Date(Date.UTC(cellYear, cellMonth, dayNum)));
+    const sessionsForDay = state.activity.byDate?.[cellDate] || [];
+    const selected = state.sessionCalendar.selectedDate === cellDate ? "selected" : "";
+    const today = (state.settings.today || todayISODate()) === cellDate ? "today" : "";
+    const outsideClass = outside ? "outside" : "";
+    const hasSession = sessionsForDay.length ? "has-session" : "";
+    cells.push(`
+      <button type="button" class="calendar-day session-cal-day ${outsideClass} ${selected} ${today} ${hasSession}" data-session-date="${cellDate}">
+        <span class="calendar-date">${dayNum}</span>
+        <span class="day-score">${sessionsForDay.length ? `${sessionsForDay.length} session${sessionsForDay.length > 1 ? "s" : ""}` : "0 sessions"}</span>
+      </button>
+    `);
+  }
+  sessionCalendarGridEl.innerHTML = cells.join("");
+  renderSessionCalendarDetail(state.sessionCalendar.selectedDate);
 }
 
 function renderActiveSession() {
@@ -1251,6 +1721,7 @@ function renderActiveSession() {
     activeSessionPanel.classList.add("hidden");
     startSessionBtn.classList.remove("hidden");
     state.activity.leaderboardRanks = {};
+    state.activity.leaderboardSignature = "";
     if (state.activityTimerIntervalId) {
       clearInterval(state.activityTimerIntervalId);
       state.activityTimerIntervalId = null;
@@ -1271,35 +1742,47 @@ function renderActiveSession() {
   const participants = Array.isArray(session.participants) ? session.participants : [];
   sessionParticipantsList.innerHTML = participants.length
     ? participants
-        .map((p) => `<li>${escapeHtml(p.displayName || p.email)}${p.leftAt ? " (left)" : ""}</li>`)
+        .map(
+          (p) =>
+            `<li>${renderActivityPersonName(p)}${p.leftAt ? " (left)" : ""}</li>`
+        )
         .join("")
     : "<li>No participants yet.</li>";
 
   const leaderboard = Array.isArray(session.leaderboard) ? session.leaderboard : [];
+  const signature = leaderboard
+    .map((row, idx) => `${row.userId || row.email || idx}:${toInt(row.score)}:${idx + 1}`)
+    .join("|");
   if (leaderboard.length) {
-    const previousRanks = state.activity.leaderboardRanks || {};
-    const nextRanks = {};
-    sessionLeaderboardList.innerHTML = leaderboard
-      .map((row, idx) => {
-        const key = String(row.userId || row.email || row.displayName || idx);
-        const nextRank = idx + 1;
-        const prevRank = Number(previousRanks[key] || 0);
-        nextRanks[key] = nextRank;
-        let moveClass = "rank-new";
-        if (prevRank > 0) {
-          if (nextRank < prevRank) moveClass = "rank-up";
-          else if (nextRank > prevRank) moveClass = "rank-down";
-          else moveClass = "rank-hold";
-        }
-        return `<li class="leader-row ${moveClass}" style="--row-index:${idx};"><span class="leader-name">${escapeHtml(
-          row.displayName || row.email
-        )}</span> <strong>${toInt(row.score)} pts</strong></li>`;
-      })
-      .join("");
-    state.activity.leaderboardRanks = nextRanks;
+    if (signature !== state.activity.leaderboardSignature) {
+      const previousRanks = state.activity.leaderboardRanks || {};
+      const nextRanks = {};
+      sessionLeaderboardList.innerHTML = leaderboard
+        .map((row, idx) => {
+          const key = String(row.userId || row.email || row.displayName || idx);
+          const nextRank = idx + 1;
+          const prevRank = Number(previousRanks[key] || 0);
+          nextRanks[key] = nextRank;
+          let moveClass = "rank-new";
+          if (prevRank > 0) {
+            if (nextRank < prevRank) moveClass = "rank-up";
+            else if (nextRank > prevRank) moveClass = "rank-down";
+            else moveClass = "rank-hold";
+          }
+          return `<li class="leader-row ${moveClass}" style="--row-index:${idx};">
+            <span class="leader-place">${ordinalPlace(nextRank)}</span>
+            <span class="leader-name">${renderActivityPersonName(row)}</span>
+            <strong>${toInt(row.score)} pts</strong>
+          </li>`;
+        })
+        .join("");
+      state.activity.leaderboardRanks = nextRanks;
+      state.activity.leaderboardSignature = signature;
+    }
   } else {
     sessionLeaderboardList.innerHTML = "<li>No scores yet.</li>";
     state.activity.leaderboardRanks = {};
+    state.activity.leaderboardSignature = "";
   }
 
     const invitable = Array.isArray(session.invitableFriends) ? session.invitableFriends : [];
@@ -2126,7 +2609,7 @@ function startCrossDeviceSyncMonitor() {
   state.crossDeviceSyncIntervalId = setInterval(() => {
     if (!state.auth.token) return;
     if (state.isSaving || state.rolloverInProgress) return;
-    const canApply = !state.isDirty && !document.hidden;
+    const canApply = !state.isDirty;
     loadHistory({ silent: true, applySelectedDate: canApply });
     if (canApply) {
       loadActivityState();
@@ -2168,8 +2651,87 @@ function periodLabel(period) {
   }[period] || "7D";
 }
 
+function dateRangeInclusive(fromIso, toIso) {
+  if (!fromIso || !toIso) return [];
+  const start = parseIsoDate(fromIso);
+  const end = parseIsoDate(toIso);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+  const out = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    out.push(formatIsoDateUTC(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return out;
+}
+
+function startOfMetricCalendarGrid(fromIso) {
+  const d = parseIsoDate(fromIso);
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d;
+}
+
+function endOfMetricCalendarGrid(toIso) {
+  const d = parseIsoDate(toIso);
+  const day = d.getUTCDay();
+  const diff = day === 0 ? 0 : 7 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d;
+}
+
+function metricIntensity(value, maxValue) {
+  const current = Math.max(0, Number(value || 0));
+  const max = Math.max(1, Number(maxValue || 0));
+  const pct = current / max;
+  if (pct <= 0) return 0;
+  if (pct < 0.25) return 1;
+  if (pct < 0.5) return 2;
+  if (pct < 0.8) return 3;
+  return 4;
+}
+
+function renderMetricCalendar(payload) {
+  if (!metricCalendarGridEl || !metricCalendarMetaEl) return;
+  const from = payload?.range?.from;
+  const to = payload?.range?.to;
+  if (!from || !to) {
+    metricCalendarGridEl.innerHTML = "";
+    metricCalendarMetaEl.textContent = "No period selected.";
+    return;
+  }
+
+  const valueByDate = new Map((payload.line || []).map((row) => [row.logDate, toInt(row.value)]));
+  const datesInRange = dateRangeInclusive(from, to);
+  const maxValue = Math.max(0, ...datesInRange.map((date) => toInt(valueByDate.get(date))));
+  const gridStart = startOfMetricCalendarGrid(from);
+  const gridEnd = endOfMetricCalendarGrid(to);
+
+  const cells = [];
+  const cursor = new Date(gridStart);
+  while (cursor <= gridEnd) {
+    const iso = formatIsoDateUTC(cursor);
+    const inRange = iso >= from && iso <= to;
+    const value = inRange ? toInt(valueByDate.get(iso)) : 0;
+    const intensity = metricIntensity(value, maxValue);
+    cells.push(`
+      <div class="metric-calendar-cell intensity-${intensity} ${inRange ? "" : "outside-range"}" title="${iso}: ${value}">
+        <span class="metric-calendar-day">${Number(iso.slice(-2))}</span>
+        <span class="metric-calendar-val">${value}</span>
+      </div>
+    `);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  metricCalendarGridEl.innerHTML = cells.join("");
+  metricCalendarMetaEl.textContent = `${from} to ${to} • max daily count ${maxValue}`;
+}
+
 async function loadDrawerCharts() {
   if (!state.drawerMetric) return;
+  const requestSeq = (state.drawer.requestSeq || 0) + 1;
+  state.drawer.requestSeq = requestSeq;
   const params = new URLSearchParams({
     metric: state.drawerMetric,
     period: state.drawerPeriod
@@ -2179,21 +2741,32 @@ async function loadDrawerCharts() {
     params.set("to", customToInput.value);
   }
   try {
+    drawerSub.textContent = "Loading analytics...";
     const { response, data: payload } = await apiFetch(`/api/analytics?${params.toString()}`);
+    if (requestSeq !== state.drawer.requestSeq) return;
     if (!response.ok) throw new Error(payload.error || "Could not load analytics");
     const metric = metricByKey(state.drawerMetric);
     drawerSub.textContent = `${periodLabel(state.drawerPeriod)} • ${payload.range.from} to ${payload.range.to}`;
     chartManager.renderAll(canvasMap, payload, metric.label);
+    renderMetricCalendar(payload);
   } catch (error) {
+    if (requestSeq !== state.drawer.requestSeq) return;
     drawerSub.textContent = error.message || "Analytics unavailable";
+    renderMetricCalendar({ range: null, line: [] });
   }
 }
 
 function openDrawer(metricKey) {
+  if (state.layout.editMode) return;
   closeProfileDrawer();
   const metric = metricByKey(metricKey);
   if (!metric) return;
   state.drawerMetric = metricKey;
+  state.drawerPeriod = "7d";
+  periodButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.period === "7d");
+  });
+  customRangeWrap.classList.add("hidden");
   drawerTitle.textContent = metric.label;
   drawer.classList.remove("hidden");
   drawerBackdrop.classList.remove("hidden");
@@ -2202,6 +2775,7 @@ function openDrawer(metricKey) {
 }
 
 function closeDrawer() {
+  state.drawer.requestSeq = (state.drawer.requestSeq || 0) + 1;
   drawer.classList.add("hidden");
   drawerBackdrop.classList.add("hidden");
   drawer.setAttribute("aria-hidden", "true");
@@ -2331,6 +2905,41 @@ function setupCalendarEvents() {
     updateLiveUI({ markDirty: false });
     renderCalendar();
   });
+
+  if (sessionCalendarGridEl) {
+    sessionCalendarGridEl.addEventListener("click", (event) => {
+      const btn = event.target.closest(".session-cal-day");
+      if (!btn) return;
+      const date = btn.dataset.sessionDate;
+      state.sessionCalendar.selectedDate = date;
+      renderSessionCalendar();
+    });
+  }
+
+  if (sessionCalPrevBtn) {
+    sessionCalPrevBtn.addEventListener("click", () => {
+      const next = new Date(Date.UTC(state.sessionCalendar.year, state.sessionCalendar.month - 1, 1));
+      state.sessionCalendar.year = next.getUTCFullYear();
+      state.sessionCalendar.month = next.getUTCMonth();
+      renderSessionCalendar();
+    });
+  }
+
+  if (sessionCalNextBtn) {
+    sessionCalNextBtn.addEventListener("click", () => {
+      const next = new Date(Date.UTC(state.sessionCalendar.year, state.sessionCalendar.month + 1, 1));
+      state.sessionCalendar.year = next.getUTCFullYear();
+      state.sessionCalendar.month = next.getUTCMonth();
+      renderSessionCalendar();
+    });
+  }
+
+  if (sessionCalTodayBtn) {
+    sessionCalTodayBtn.addEventListener("click", () => {
+      setSessionCalendarFromDate(state.settings.today || todayISODate());
+      renderSessionCalendar();
+    });
+  }
 }
 
 function loadCalcHistory() {
@@ -2468,6 +3077,29 @@ function setupFormEvents() {
     if (!btn) return;
     const inputId = btn.dataset.stepTarget;
     const dir = Number(btn.dataset.stepDir || 0);
+
+    if (inputId === "applications" && dir > 0) {
+      const added = appendApplicationFromPrompt();
+      if (!added) return;
+      updateLiveUI();
+      const applicationsInput = document.getElementById("applications");
+      if (applicationsInput) {
+        applicationsInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return;
+    }
+
+    if (inputId === "applications" && dir < 0) {
+      const removed = removeLastApplicationEntry();
+      if (!removed) return;
+      updateLiveUI();
+      const applicationsInput = document.getElementById("applications");
+      if (applicationsInput) {
+        applicationsInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      return;
+    }
+
     const input = document.getElementById(inputId);
     if (!input) return;
     const next = Math.max(0, toInt(input.value) + dir);
@@ -2486,7 +3118,14 @@ function setupFormEvents() {
   });
   resetBtn.addEventListener("click", resetForm);
   historyBtn.addEventListener("click", () => historyCard.classList.toggle("hidden"));
-  sessionsBtn.addEventListener("click", () => sessionsHistoryCard.classList.toggle("hidden"));
+  sessionsBtn.addEventListener("click", () => {
+    const willShow = sessionsHistoryCard.classList.contains("hidden");
+    sessionsHistoryCard.classList.toggle("hidden");
+    if (willShow) {
+      renderSessionCalendar();
+      sessionsHistoryCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
   dateInput.addEventListener("change", () => {
     if (!isValidLogDate(dateInput.value)) return;
     const date = parseIsoDate(dateInput.value);
@@ -2507,6 +3146,13 @@ function setupFormEvents() {
 
 function setupActivityEvents() {
   startSessionBtn.addEventListener("click", startSharedSession);
+  if (activityHistoryQuickBtn) {
+    activityHistoryQuickBtn.addEventListener("click", () => {
+      sessionsHistoryCard.classList.remove("hidden");
+      renderSessionCalendar();
+      sessionsHistoryCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
   inviteFriendBtn.addEventListener("click", inviteFriendToSession);
   leaveSessionBtn.addEventListener("click", leaveActiveSession);
   stopSessionBtn.addEventListener("click", stopActiveSession);
@@ -2525,6 +3171,7 @@ async function bootstrapDashboard() {
     applyStoredThemeModes();
     updateGreeting();
     setupThemeModeEvents();
+    setupLayoutEditor();
     setupDrawerEvents();
     setupProfileEvents();
     setupCalendarEvents();
@@ -2539,6 +3186,7 @@ async function bootstrapDashboard() {
   updateGreeting();
   const baseToday = state.settings.today || getTrackerTodayISO();
   setCalendarFromDate(baseToday);
+  setSessionCalendarFromDate(baseToday);
   dateInput.value = state.calendar.selectedDate || baseToday;
   document.getElementById("dialGoal").value = String(
     state.settings.defaultDialGoal ?? 100
@@ -2580,6 +3228,13 @@ async function bootstrapDashboard() {
 }
 
 async function init() {
+  const query = new URLSearchParams(window.location.search);
+  const tokenFromUrl = String(query.get("resetToken") || "").trim();
+  if (tokenFromUrl && resetPanel && resetTokenInput) {
+    resetPanel.classList.remove("hidden");
+    resetTokenInput.value = tokenFromUrl;
+    showAuthMessage("Reset code detected. Enter a new password to continue.");
+  }
   setupAuthEvents();
   const validToken = await verifyAuthToken();
   if (!validToken) {

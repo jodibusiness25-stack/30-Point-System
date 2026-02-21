@@ -107,6 +107,11 @@ BACKUP_DIR=/Users/jodizaky/Documents/masterboard:/server/backups
 BACKUP_CHECK_INTERVAL_MINUTES=30
 MOTION_ALERT_PENDING_THRESHOLD=25
 MOTION_ALERT_FAILED_THRESHOLD=5
+APP_PUBLIC_URL=https://your-domain-or-localhost:3000
+PASSWORD_RESET_TTL_MINUTES=60
+PASSWORD_RESET_MIN_INTERVAL_SECONDS=30
+# Optional debug helper (returns token in API response). Keep 0 in production.
+PASSWORD_RESET_DEBUG_RESPONSE=0
 ```
 
 3. Start:
@@ -138,6 +143,8 @@ Deploy:
 ## API Endpoints
 - `POST /api/auth/register`
 - `POST /api/auth/login`
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/reset-password`
 - `GET /api/auth/me`
 - `GET /api/profile`
 - `POST /api/profile`
@@ -346,7 +353,22 @@ LEVEL_EXP_BASE=1.15
 Add this in `/server/.env`:
 ```env
 AUTH_SECRET=replace_with_long_random_secret
+APP_PUBLIC_URL=https://your-deployed-domain
+PASSWORD_RESET_TTL_MINUTES=60
+PASSWORD_RESET_MIN_INTERVAL_SECONDS=30
+PASSWORD_RESET_DEBUG_RESPONSE=0
 ```
+
+## Account Recovery / Password Reset
+- Auth card now includes:
+  - `Forgot password?` (requests reset token/link)
+  - `Have reset code?` (enter token + new password)
+- Security behavior:
+  - reset token is random and stored hashed in SQLite
+  - token expires (default 60 minutes)
+  - single-use token (cannot be reused)
+  - short request throttling to prevent spam
+- In non-production (or when `PASSWORD_RESET_DEBUG_RESPONSE=1`), API also returns reset token/link in response to speed local testing.
 
 ## Mac Env Vars
 Temporary (current terminal):

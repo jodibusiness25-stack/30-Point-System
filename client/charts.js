@@ -19,6 +19,9 @@
   }
 
   function createOrUpdate(chartRef, ctx, config) {
+    if (typeof Chart === "undefined") {
+      return null;
+    }
     if (chartRef && typeof chartRef.destroy === "function") {
       chartRef.destroy();
     }
@@ -29,6 +32,7 @@
     const state = { line: null, bar: null, donut: null };
 
     function renderLine(canvas, payload, metric) {
+      if (!canvas) return;
       state.line = createOrUpdate(state.line, canvas.getContext("2d"), {
         type: "line",
         data: {
@@ -49,6 +53,7 @@
     }
 
     function renderBar(canvas, payload, metric) {
+      if (!canvas) return;
       state.bar = createOrUpdate(state.bar, canvas.getContext("2d"), {
         type: "bar",
         data: {
@@ -67,6 +72,7 @@
     }
 
     function renderDonut(canvas, payload) {
+      if (!canvas) return;
       state.donut = createOrUpdate(state.donut, canvas.getContext("2d"), {
         type: "doughnut",
         data: {

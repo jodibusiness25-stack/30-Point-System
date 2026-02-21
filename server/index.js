@@ -7,6 +7,7 @@ const cors = require("cors");
 const axios = require("axios");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const { initDb, run, get, all } = require("./db");
 
 const app = express();
@@ -18,6 +19,7 @@ const MOTION_API_BASE_URL =
   process.env.MOTION_API_BASE_URL || "https://api.usemotion.com";
 const GLOBAL_MOTION_API_KEY = process.env.MOTION_API_KEY || "";
 const GLOBAL_MOTION_PROJECT_ID = process.env.MOTION_PROJECT_ID || "";
+const APP_PUBLIC_URL = String(process.env.APP_PUBLIC_URL || "").trim().replace(/\/+$/, "");
 
 app.use(cors());
 app.use(express.json({ limit: "100kb" }));
@@ -46,6 +48,10 @@ const MAX_COUNT = 10000;
 const MAX_FYC_NOTES_LENGTH = 2000;
 const MAX_DISPLAY_NAME_LENGTH = 80;
 const MAX_SESSION_NAME_LENGTH = 80;
+const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES) || 60;
+const PASSWORD_RESET_MIN_INTERVAL_MS =
+  (Number(process.env.PASSWORD_RESET_MIN_INTERVAL_SECONDS) || 30) * 1000;
+const PASSWORD_RESET_DEBUG_RESPONSE = Number(process.env.PASSWORD_RESET_DEBUG_RESPONSE || 0) === 1;
 const MOTION_RETRY_MAX_ATTEMPTS = 10;
 const MOTION_RETRY_BATCH_SIZE = 10;
 const MOTION_RETRY_INTERVAL_MS = 10 * 60 * 1000;
@@ -287,6 +293,87 @@ function signAuthToken(user) {
   return jwt.sign({ userId: user.id, email: user.email }, AUTH_SECRET, {
     expiresIn: "30d"
   });
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value)).digest("hex");
+}
+
+function buildResetLink(token, req = null) {
+  if (!token) return "";
+  if (req && req.headers && req.headers.host) {
+    const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "http")
+      .split(",")[0]
+      .trim();
+    return `${proto}://${req.headers.host}/?resetToken=${encodeURIComponent(token)}`;
+  }
+  if (APP_PUBLIC_URL) {
+    return `${APP_PUBLIC_URL}/?resetToken=${encodeURIComponent(token)}`;
+  }
+  return `/?resetToken=${encodeURIComponent(token)}`;
+}
+
+async function issuePasswordResetToken(userId, requestIp = "", requestUserAgent = "") {
+  const nowMs = Date.now();
+  const tooSoonCutoff = nowMs - PASSWORD_RESET_MIN_INTERVAL_MS;
+  const recent = await get(
+    `
+    SELECT id
+    FROM password_reset_tokens
+    WHERE userId = ? AND createdAt >= datetime(?, 'unixepoch')
+    ORDER BY id DESC
+    LIMIT 1
+    `,
+    [userId, Math.floor(tooSoonCutoff / 1000)]
+  );
+  if (recent) {
+    return { throttled: true };
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = sha256(token);
+  const expiresAtMs = nowMs + PASSWORD_RESET_TTL_MINUTES * 60 * 1000;
+  await run("DELETE FROM password_reset_tokens WHERE userId = ? AND usedAtMs IS NULL", [userId]);
+  await run(
+    `
+    INSERT INTO password_reset_tokens (
+      userId,
+      tokenHash,
+      expiresAtMs,
+      usedAtMs,
+      requestIp,
+      requestUserAgent
+    ) VALUES (?, ?, ?, NULL, ?, ?)
+    `,
+    [userId, tokenHash, expiresAtMs, String(requestIp || "").slice(0, 120), String(requestUserAgent || "").slice(0, 255)]
+  );
+  return { token, expiresAtMs, throttled: false };
+}
+
+async function consumePasswordResetToken(rawToken) {
+  const tokenHash = sha256(rawToken);
+  const row = await get(
+    `
+    SELECT id, userId, expiresAtMs, usedAtMs
+    FROM password_reset_tokens
+    WHERE tokenHash = ?
+    LIMIT 1
+    `,
+    [tokenHash]
+  );
+  if (!row) return { ok: false, reason: "invalid" };
+  if (row.usedAtMs) return { ok: false, reason: "used" };
+  if (Number(row.expiresAtMs) <= Date.now()) return { ok: false, reason: "expired" };
+  const consumed = await run(
+    `
+    UPDATE password_reset_tokens
+    SET usedAtMs = ?
+    WHERE id = ? AND usedAtMs IS NULL
+    `,
+    [Date.now(), row.id]
+  );
+  if (!consumed || consumed.changes < 1) return { ok: false, reason: "used" };
+  return { ok: true, userId: row.userId };
 }
 
 function authFromHeader(req) {
@@ -924,7 +1011,7 @@ async function getActiveSessionForUser(userId) {
 async function getSessionParticipants(sessionId) {
   return all(
     `
-    SELECT p.userId, u.email, u.displayName, p.joinedAt, p.leftAt
+    SELECT p.userId, u.email, u.displayName, u.teamId, u.roleTitle, p.joinedAt, p.leftAt
     FROM activity_session_participants p
     INNER JOIN users u ON u.id = p.userId
     WHERE p.sessionId = ?
@@ -937,7 +1024,7 @@ async function getSessionParticipants(sessionId) {
 async function getSessionLeaderboard(sessionId) {
   return all(
     `
-    SELECT sc.userId, u.displayName, u.email, sc.score, sc.updatedAt
+    SELECT sc.userId, u.displayName, u.email, u.teamId, u.roleTitle, sc.score, sc.updatedAt
     FROM activity_session_scores sc
     INNER JOIN users u ON u.id = sc.userId
     WHERE sc.sessionId = ?
@@ -1068,6 +1155,109 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (error) {
     console.error("Login error:", error.message);
     res.status(500).json({ error: "Failed to login" });
+  }
+});
+
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const genericMessage =
+    "If that email is registered, a password reset link has been generated.";
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      res.status(200).json({ message: genericMessage });
+      return;
+    }
+
+    const user = await getUserByEmail(email);
+    if (!user || user.isLegacy) {
+      res.status(200).json({ message: genericMessage });
+      return;
+    }
+
+    await run(
+      `
+      DELETE FROM password_reset_tokens
+      WHERE userId = ? AND (usedAtMs IS NOT NULL OR expiresAtMs <= ?)
+      `,
+      [user.id, Date.now()]
+    );
+
+    const issued = await issuePasswordResetToken(
+      user.id,
+      req.ip || "",
+      req.headers["user-agent"] || ""
+    );
+
+    if (issued.throttled) {
+      res.status(200).json({
+        message: "Reset already requested recently. Please wait a moment and try again."
+      });
+      return;
+    }
+
+    const resetUrl = buildResetLink(issued.token, req);
+    console.log(
+      `[password-reset] user=${user.email} expires=${new Date(issued.expiresAtMs).toISOString()} link=${resetUrl}`
+    );
+
+    const showDebugToken =
+      process.env.NODE_ENV !== "production" || PASSWORD_RESET_DEBUG_RESPONSE;
+    res.status(200).json({
+      message: genericMessage,
+      ...(showDebugToken
+        ? {
+            resetToken: issued.token,
+            resetUrl,
+            expiresAt: new Date(issued.expiresAtMs).toISOString()
+          }
+        : {})
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error.message);
+    res.status(200).json({ message: genericMessage });
+  }
+});
+
+app.post("/api/auth/reset-password", async (req, res) => {
+  try {
+    const token = String(req.body?.token || "").trim();
+    const newPassword = String(req.body?.newPassword || "");
+    if (!token) {
+      res.status(400).json({ error: "Reset token is required" });
+      return;
+    }
+    if (newPassword.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const consumed = await consumePasswordResetToken(token);
+    if (!consumed.ok) {
+      const map = {
+        invalid: "Invalid reset token",
+        used: "This reset token has already been used",
+        expired: "This reset token has expired"
+      };
+      res.status(400).json({ error: map[consumed.reason] || "Invalid reset token" });
+      return;
+    }
+
+    const user = await getUserById(consumed.userId);
+    if (!user || user.isLegacy) {
+      res.status(400).json({ error: "Invalid reset token" });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await run("UPDATE users SET passwordHash = ? WHERE id = ?", [passwordHash, user.id]);
+    await run(
+      "UPDATE password_reset_tokens SET usedAtMs = ? WHERE userId = ? AND usedAtMs IS NULL",
+      [Date.now(), user.id]
+    );
+    res.json({ message: "Password reset complete. You can now login with your new password." });
+  } catch (error) {
+    console.error("Reset password error:", error.message);
+    res.status(500).json({ error: "Failed to reset password" });
   }
 });
 

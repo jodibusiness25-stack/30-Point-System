@@ -247,6 +247,34 @@ body {
   padding: 0 10px;
 }
 
+.auth-recovery {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.auth-link-btn {
+  border: none;
+  background: transparent;
+  color: var(--primary-2);
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.auth-link-btn:hover {
+  color: var(--accent);
+}
+
+.auth-reset-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  background: color-mix(in srgb, var(--card) 90%, var(--bg));
+}
+
 .app-shell {
   max-width: 1080px;
   margin: 0 auto;
@@ -493,6 +521,12 @@ body.layout-edit .widget-card.drag-target {
   outline-offset: 2px;
 }
 
+body.layout-edit #layoutEditBtn {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+}
+
 .xp-card {
   position: relative;
   overflow: hidden;
@@ -636,20 +670,37 @@ textarea {
 .progress-cluster {
   margin-top: 10px;
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  grid-template-columns: 1fr;
 }
 
 @media (min-width: 900px) {
   .xp-summary {
-    max-width: 56%;
+    max-width: 58%;
   }
 
   .progress-cluster {
-    grid-template-columns: 1fr;
-    column-gap: 0;
-    row-gap: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 12px;
+    row-gap: 10px;
     align-items: start;
   }
+}
+
+.progress-left {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.progress-calc-slot {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+  border-radius: 12px;
+  padding: 9px;
+  background: color-mix(in srgb, var(--card) 93%, var(--bg));
+  box-shadow: 0 6px 16px rgba(10, 28, 54, 0.08);
+  align-self: stretch;
 }
 
 .bar {
@@ -970,6 +1021,11 @@ textarea {
   gap: 10px;
 }
 
+.support-grid h2 {
+  grid-column: 1 / -1;
+  margin: 0 0 2px;
+}
+
 .support-grid label {
   display: grid;
   gap: 5px;
@@ -1023,6 +1079,11 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.activity-head-actions {
+  display: inline-flex;
+  gap: 6px;
 }
 
 .friend-bar {
@@ -1161,7 +1222,7 @@ textarea {
 }
 
 .leader-row.rank-hold {
-  animation: leaderFadeIn 180ms ease both;
+  animation: none;
 }
 
 .leader-row.rank-new {
@@ -1172,6 +1233,29 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.activity-name-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.activity-lead-star {
+  color: #d4af37;
+  font-size: 10px;
+  line-height: 1;
+  filter: drop-shadow(0 0 2px rgba(212, 175, 55, 0.25));
+}
+
+.leader-place {
+  min-width: 30px;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 @keyframes leaderFadeIn {
@@ -1405,6 +1489,72 @@ th {
   font-size: 13px;
 }
 
+.metric-calendar-card {
+  display: grid;
+  gap: 8px;
+}
+
+.metric-calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.metric-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.metric-calendar-cell {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 26px;
+  padding: 3px 4px;
+  display: grid;
+  align-content: space-between;
+  justify-items: start;
+  background: color-mix(in srgb, var(--card) 92%, var(--bg));
+}
+
+.metric-calendar-cell.outside-range {
+  opacity: 0.45;
+}
+
+.metric-calendar-day {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.metric-calendar-val {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.metric-calendar-cell.intensity-0 {
+  background: color-mix(in srgb, var(--card) 96%, var(--bg));
+}
+
+.metric-calendar-cell.intensity-1 {
+  background: color-mix(in srgb, var(--primary) 11%, var(--card));
+}
+
+.metric-calendar-cell.intensity-2 {
+  background: color-mix(in srgb, var(--primary-2) 17%, var(--card));
+}
+
+.metric-calendar-cell.intensity-3 {
+  background: color-mix(in srgb, var(--accent) 20%, var(--card));
+}
+
+.metric-calendar-cell.intensity-4 {
+  background: color-mix(in srgb, var(--accent) 30%, var(--card));
+}
+
 .calendar-head {
   display: flex;
   align-items: center;
@@ -1587,6 +1737,24 @@ th {
   margin-top: 8px;
   display: grid;
   gap: 8px;
+}
+
+.session-calendar-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.session-calendar-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.session-cal-day {
+  min-height: 70px;
 }
 
 .calendar-session-card {
@@ -1786,6 +1954,10 @@ th {
 
   .session-columns {
     grid-template-columns: 1fr;
+  }
+
+  .progress-calc-slot {
+    margin-top: 2px;
   }
 }
 
