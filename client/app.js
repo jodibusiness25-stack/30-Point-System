@@ -30,10 +30,12 @@ const state = {
   hasPendingAutosave: false,
   autosaveTimer: null,
   autosaveIntervalId: null,
+  crossDeviceSyncIntervalId: null,
   dayRolloverIntervalId: null,
   currentTimezoneDate: null,
   rolloverInProgress: false,
   greetingIntervalId: null,
+  activityLiveIntervalId: null,
   activityTimerIntervalId: null,
   activity: {
     activeSession: null,
@@ -41,7 +43,8 @@ const state = {
     teammates: { friends: [], incomingRequests: [], outgoingRequests: [] },
     selectedConnectionUserId: null,
     sessions: [],
-    byDate: {}
+    byDate: {},
+    leaderboardRanks: {}
   },
   calendar: { year: null, month: null, selectedDate: null },
   calculator: { history: [] },
@@ -79,8 +82,8 @@ const dateInput = document.getElementById("logDate");
 const totalXPEl = document.getElementById("totalXP");
 const lifetimeXPEl = document.getElementById("lifetimeXP");
 const levelLabelEl = document.getElementById("levelLabel");
+const pointsPieEl = document.getElementById("pointsPie");
 const ratioDisplayEl = document.getElementById("ratioDisplay");
-const statusTextEl = document.getElementById("statusText");
 const messageEl = document.getElementById("message");
 const motionSyncBadgeEl = document.getElementById("motionSyncBadge");
 const autosaveBadgeEl = document.getElementById("autosaveBadge");
@@ -403,6 +406,14 @@ function setupAuthEvents() {
       clearInterval(state.dayRolloverIntervalId);
       state.dayRolloverIntervalId = null;
     }
+    if (state.crossDeviceSyncIntervalId) {
+      clearInterval(state.crossDeviceSyncIntervalId);
+      state.crossDeviceSyncIntervalId = null;
+    }
+    if (state.activityLiveIntervalId) {
+      clearInterval(state.activityLiveIntervalId);
+      state.activityLiveIntervalId = null;
+    }
     if (state.activityTimerIntervalId) {
       clearInterval(state.activityTimerIntervalId);
       state.activityTimerIntervalId = null;
@@ -587,6 +598,24 @@ function parseIsoDate(isoDate) {
   return new Date(`${isoDate}T00:00:00Z`);
 }
 
+function parseDateTimeSafe(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  let normalized = raw;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+    normalized = `${raw.replace(" ", "T")}Z`;
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    normalized = `${raw}T00:00:00Z`;
+  }
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
 function formatIsoDateUTC(date) {
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -697,14 +726,44 @@ function applyStatus(totalXP) {
   document.body.classList.remove("status-red", "status-yellow", "status-green");
   if (totalXP >= DAILY_GOAL_XP) {
     document.body.classList.add("status-green");
-    statusTextEl.textContent = "Green (>=30)";
   } else if (totalXP > 0) {
     document.body.classList.add("status-yellow");
-    statusTextEl.textContent = "Yellow (1-29)";
   } else {
     document.body.classList.add("status-red");
-    statusTextEl.textContent = "Red (0)";
   }
+}
+
+function updatePointsPie(metricPoints, totalXP) {
+  if (!pointsPieEl) return;
+  if (!totalXP || totalXP <= 0) {
+    pointsPieEl.style.background =
+      "radial-gradient(circle at center, color-mix(in srgb, var(--card) 96%, var(--bg)) 42%, transparent 43%), conic-gradient(#2f66b8 0deg, #2f66b8 360deg)";
+    pointsPieEl.title = "No points yet";
+    return;
+  }
+  const palette = ["#2f66b8", "#34c6b3", "#f3b15a", "#f34f8f", "#7b8fb6", "#49c887", "#a678e2"];
+  const entries = METRICS.map((metric, idx) => ({
+    label: metric.label,
+    value: Math.max(0, Number(metricPoints[metric.key] || 0)),
+    color: palette[idx % palette.length]
+  })).filter((item) => item.value > 0);
+  if (!entries.length) {
+    pointsPieEl.title = "No points yet";
+    return;
+  }
+
+  let cursor = 0;
+  const slices = entries
+    .map((item) => {
+      const start = cursor;
+      const sweep = (item.value / totalXP) * 360;
+      cursor += sweep;
+      return `${item.color} ${start.toFixed(2)}deg ${cursor.toFixed(2)}deg`;
+    })
+    .join(", ");
+  pointsPieEl.style.background =
+    `radial-gradient(circle at center, color-mix(in srgb, var(--card) 96%, var(--bg)) 42%, transparent 43%), conic-gradient(${slices})`;
+  pointsPieEl.title = entries.map((item) => `${item.label}: ${item.value} pts`).join(" • ");
 }
 
 function renderStrata(totalXP) {
@@ -809,6 +868,7 @@ function updateLiveUI(options = {}) {
   dailyProgressFillEl.style.width = `${Math.min(100, (stats.totalXP / DAILY_GOAL_XP) * 100)}%`;
   applyStatus(stats.totalXP);
   renderStrata(stats.totalXP);
+  updatePointsPie(stats.metricPoints, stats.totalXP);
   renderDialGoalTracker(payload, stats);
   renderAppointmentGoalTracker(payload);
 }
@@ -858,6 +918,37 @@ function updateSparklines() {
     const el = document.querySelector(`#spark-${metric.key} path`);
     if (el) el.setAttribute("d", path);
   });
+}
+
+function applyLogToForm(row) {
+  if (!row) return;
+  METRICS.forEach((metric) => {
+    const input = document.getElementById(metric.key);
+    if (input) input.value = String(toInt(row[metric.key]));
+  });
+  const dialsInput = document.getElementById("dials");
+  if (dialsInput) dialsInput.value = String(toInt(row.dials));
+  const fycTargetInput = document.getElementById("fycTarget");
+  if (fycTargetInput) fycTargetInput.value = String(toInt(row.fycTarget));
+  const fycCompletedInput = document.getElementById("fycCompleted");
+  if (fycCompletedInput) fycCompletedInput.value = String(toInt(row.fycCompleted));
+  const fycNotesInput = document.getElementById("fycNotes");
+  if (fycNotesInput) fycNotesInput.value = String(row.fycNotes || "");
+  const dialGoalInput = document.getElementById("dialGoal");
+  if (dialGoalInput) {
+    const rowDialGoal = toInt(row.dialGoal);
+    dialGoalInput.value = String(
+      rowDialGoal > 0 ? rowDialGoal : state.settings.defaultDialGoal ?? 100
+    );
+  }
+}
+
+function applySelectedDateFromHistory() {
+  if (!isValidLogDate(dateInput.value)) return;
+  const row = state.history.find((item) => item.logDate === dateInput.value);
+  if (!row) return;
+  applyLogToForm(row);
+  updateLiveUI({ markDirty: false });
 }
 
 function formatFycCell(row) {
@@ -1034,8 +1125,10 @@ function renderCalendar() {
 
 function formatClockDuration(startedAt, endedAt = null) {
   if (!startedAt) return "00:00:00";
-  const start = new Date(startedAt).getTime();
-  const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+  const startDate = parseDateTimeSafe(startedAt);
+  const endDate = endedAt ? parseDateTimeSafe(endedAt) : new Date();
+  const start = startDate ? startDate.getTime() : Number.NaN;
+  const end = endDate ? endDate.getTime() : Number.NaN;
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "00:00:00";
   const totalSec = Math.floor((end - start) / 1000);
   const hours = String(Math.floor(totalSec / 3600)).padStart(2, "0");
@@ -1046,8 +1139,8 @@ function formatClockDuration(startedAt, endedAt = null) {
 
 function formatDateTimeShort(value) {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
+  const date = parseDateTimeSafe(value);
+  if (!date) return "-";
   return date.toLocaleString([], {
     month: "short",
     day: "numeric",
@@ -1157,6 +1250,7 @@ function renderActiveSession() {
   if (!session) {
     activeSessionPanel.classList.add("hidden");
     startSessionBtn.classList.remove("hidden");
+    state.activity.leaderboardRanks = {};
     if (state.activityTimerIntervalId) {
       clearInterval(state.activityTimerIntervalId);
       state.activityTimerIntervalId = null;
@@ -1182,11 +1276,31 @@ function renderActiveSession() {
     : "<li>No participants yet.</li>";
 
   const leaderboard = Array.isArray(session.leaderboard) ? session.leaderboard : [];
-  sessionLeaderboardList.innerHTML = leaderboard.length
-    ? leaderboard
-        .map((row) => `<li>${escapeHtml(row.displayName || row.email)} <strong>${toInt(row.score)} pts</strong></li>`)
-        .join("")
-    : "<li>No scores yet.</li>";
+  if (leaderboard.length) {
+    const previousRanks = state.activity.leaderboardRanks || {};
+    const nextRanks = {};
+    sessionLeaderboardList.innerHTML = leaderboard
+      .map((row, idx) => {
+        const key = String(row.userId || row.email || row.displayName || idx);
+        const nextRank = idx + 1;
+        const prevRank = Number(previousRanks[key] || 0);
+        nextRanks[key] = nextRank;
+        let moveClass = "rank-new";
+        if (prevRank > 0) {
+          if (nextRank < prevRank) moveClass = "rank-up";
+          else if (nextRank > prevRank) moveClass = "rank-down";
+          else moveClass = "rank-hold";
+        }
+        return `<li class="leader-row ${moveClass}" style="--row-index:${idx};"><span class="leader-name">${escapeHtml(
+          row.displayName || row.email
+        )}</span> <strong>${toInt(row.score)} pts</strong></li>`;
+      })
+      .join("");
+    state.activity.leaderboardRanks = nextRanks;
+  } else {
+    sessionLeaderboardList.innerHTML = "<li>No scores yet.</li>";
+    state.activity.leaderboardRanks = {};
+  }
 
     const invitable = Array.isArray(session.invitableFriends) ? session.invitableFriends : [];
   inviteFriendSelect.innerHTML = invitable.length
@@ -1285,7 +1399,8 @@ async function viewPersonProfile(userId) {
   }
 }
 
-async function loadActivityState() {
+async function loadActivityState(options = {}) {
+  const silent = options.silent === true;
   try {
     const { response, data } = await apiFetch("/api/activity/state");
     if (!response.ok) throw new Error(data?.error || "Failed to load activity state");
@@ -1294,11 +1409,14 @@ async function loadActivityState() {
     state.activity.teammates = data.teammates || data.friends || state.activity.teammates;
     renderActivityWidget();
   } catch (error) {
-    showActivityMessage(error.message || "Could not load activity state", true);
+    if (!silent) {
+      showActivityMessage(error.message || "Could not load activity state", true);
+    }
   }
 }
 
-async function loadActivityHistory() {
+async function loadActivityHistory(options = {}) {
+  const silent = options.silent === true;
   try {
     const { response, data } = await apiFetch("/api/activity/history");
     if (!response.ok) throw new Error(data?.error || "Failed to load session history");
@@ -1307,7 +1425,9 @@ async function loadActivityHistory() {
     renderSessionHistory();
     renderCalendar();
   } catch (error) {
-    showActivityMessage(error.message || "Could not load session history", true);
+    if (!silent) {
+      showActivityMessage(error.message || "Could not load session history", true);
+    }
   }
 }
 
@@ -1447,7 +1567,9 @@ async function stopActiveSession() {
   }
 }
 
-async function loadHistory() {
+async function loadHistory(options = {}) {
+  const silent = options.silent === true;
+  const applySelectedDate = options.applySelectedDate === true;
   try {
     const { response, data } = await apiFetch("/api/history");
     if (!response.ok) throw new Error(data.error || "Failed to fetch history");
@@ -1459,11 +1581,17 @@ async function loadHistory() {
     renderHistory();
     updateLevelUI();
     updateSparklines();
-    updateLiveUI({ markDirty: false });
+    if (applySelectedDate && !state.isDirty) {
+      applySelectedDateFromHistory();
+    } else {
+      updateLiveUI({ markDirty: false });
+    }
     updateMotionSyncBadge();
     renderCalendar();
   } catch (error) {
-    showMessage(error.message || "Could not load history", true);
+    if (!silent) {
+      showMessage(error.message || "Could not load history", true);
+    }
   }
 }
 
@@ -1481,8 +1609,8 @@ async function loadSettings() {
 
 function formatDateTime(value) {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
+  const date = parseDateTimeSafe(value);
+  if (!date) return "";
   return date.toLocaleString([], {
     year: "numeric",
     month: "short",
@@ -1993,6 +2121,41 @@ function startDayRolloverMonitor() {
   }, 30000);
 }
 
+function startCrossDeviceSyncMonitor() {
+  if (state.crossDeviceSyncIntervalId) return;
+  state.crossDeviceSyncIntervalId = setInterval(() => {
+    if (!state.auth.token) return;
+    if (state.isSaving || state.rolloverInProgress) return;
+    const canApply = !state.isDirty && !document.hidden;
+    loadHistory({ silent: true, applySelectedDate: canApply });
+    if (canApply) {
+      loadActivityState();
+      loadActivityHistory();
+    }
+  }, 15000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    if (!state.auth.token) return;
+    if (state.isSaving || state.rolloverInProgress) return;
+    const canApply = !state.isDirty;
+    loadHistory({ silent: true, applySelectedDate: canApply });
+    loadActivityState();
+    loadActivityHistory();
+  });
+}
+
+function startActivityLiveMonitor() {
+  if (state.activityLiveIntervalId) return;
+  state.activityLiveIntervalId = setInterval(async () => {
+    if (!state.auth.token) return;
+    if (!state.activity.activeSession) return;
+    if (state.isSaving || state.rolloverInProgress) return;
+    await loadActivityState({ silent: true });
+    await loadActivityHistory({ silent: true });
+  }, 4000);
+}
+
 function periodLabel(period) {
   return {
     "7d": "7D",
@@ -2330,6 +2493,9 @@ function setupFormEvents() {
     state.calendar.year = date.getUTCFullYear();
     state.calendar.month = date.getUTCMonth();
     state.calendar.selectedDate = dateInput.value;
+    if (!state.isDirty) {
+      applySelectedDateFromHistory();
+    }
     renderCalendar();
   });
   window.addEventListener("beforeunload", (event) => {
@@ -2402,6 +2568,8 @@ async function bootstrapDashboard() {
   updateAutosaveBadge("Autosave: Idle");
   startAutosaveInterval();
   startDayRolloverMonitor();
+  startCrossDeviceSyncMonitor();
+  startActivityLiveMonitor();
   if (!state.greetingIntervalId) {
     state.greetingIntervalId = setInterval(updateGreeting, 60000);
   }
