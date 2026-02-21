@@ -1,5 +1,7 @@
 require("dotenv").config();
 const path = require("path");
+const fs = require("fs");
+const fsp = require("fs/promises");
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -47,7 +49,18 @@ const MAX_SESSION_NAME_LENGTH = 80;
 const MOTION_RETRY_MAX_ATTEMPTS = 10;
 const MOTION_RETRY_BATCH_SIZE = 10;
 const MOTION_RETRY_INTERVAL_MS = 10 * 60 * 1000;
+const MOTION_ALERT_PENDING_THRESHOLD = Number(process.env.MOTION_ALERT_PENDING_THRESHOLD) || 25;
+const MOTION_ALERT_FAILED_THRESHOLD = Number(process.env.MOTION_ALERT_FAILED_THRESHOLD) || 5;
+const BACKUP_CHECK_INTERVAL_MS = (Number(process.env.BACKUP_CHECK_INTERVAL_MINUTES) || 30) * 60 * 1000;
+const SQLITE_PATH = process.env.SQLITE_PATH
+  ? path.resolve(process.env.SQLITE_PATH)
+  : path.join(__dirname, "tracker.sqlite");
+const BACKUP_DIR = process.env.BACKUP_DIR
+  ? path.resolve(process.env.BACKUP_DIR)
+  : path.join(path.dirname(SQLITE_PATH), "backups");
 let motionRetryTimer = null;
+let backupTimer = null;
+let lastBackupDay = null;
 const TEAM_ROLE = {
   LEAD: "Team Lead",
   PARTNER: "Partner",
@@ -119,6 +132,52 @@ function getWeekStartMonday(isoDate) {
   const diffToMonday = day === 0 ? -6 : 1 - day;
   date.setUTCDate(date.getUTCDate() + diffToMonday);
   return formatDateUTC(date);
+}
+
+function nowTimestampKey() {
+  return new Date().toISOString().replaceAll(":", "-");
+}
+
+function sanitizeTableName(name) {
+  return String(name || "").replaceAll('"', '""');
+}
+
+async function createNightlyBackupSnapshot(reason = "scheduled") {
+  const backupDay = getIsoDateInTimeZone(APP_TIMEZONE);
+  const filePath = path.join(BACKUP_DIR, `snapshot-${backupDay}.json`);
+  if (fs.existsSync(filePath)) {
+    lastBackupDay = backupDay;
+    return { skipped: true, reason: "already_exists", filePath };
+  }
+
+  const tables = await all(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name ASC"
+  );
+  const snapshot = {
+    createdAt: new Date().toISOString(),
+    reason,
+    timezone: APP_TIMEZONE,
+    day: backupDay,
+    tables: {}
+  };
+  for (const table of tables) {
+    const safeName = sanitizeTableName(table.name);
+    snapshot.tables[table.name] = await all(`SELECT * FROM "${safeName}"`);
+  }
+  await fsp.mkdir(BACKUP_DIR, { recursive: true });
+  await fsp.writeFile(filePath, JSON.stringify(snapshot), "utf8");
+  lastBackupDay = backupDay;
+  return { skipped: false, filePath };
+}
+
+async function maybeRunNightlyBackup(reason = "scheduled") {
+  try {
+    const backupDay = getIsoDateInTimeZone(APP_TIMEZONE);
+    if (backupDay === lastBackupDay) return;
+    await createNightlyBackupSnapshot(reason);
+  } catch (error) {
+    console.error("Backup worker error:", error.message);
+  }
 }
 
 function startOfMonth(date) {
@@ -1915,15 +1974,27 @@ app.get("/api/health", async (req, res) => {
     const dbCheck = await get("SELECT 1 AS ok");
     const pending = await get("SELECT COUNT(1) AS count FROM daily_logs WHERE motionSyncStatus = 'pending'");
     const failed = await get("SELECT COUNT(1) AS count FROM daily_logs WHERE motionSyncStatus = 'failed'");
+    const pendingCount = pending?.count || 0;
+    const failedCount = failed?.count || 0;
+    const alerts = {
+      motionPendingHigh: pendingCount >= MOTION_ALERT_PENDING_THRESHOLD,
+      motionFailedHigh: failedCount >= MOTION_ALERT_FAILED_THRESHOLD
+    };
+    const status = alerts.motionPendingHigh || alerts.motionFailedHigh ? "warn" : "ok";
     res.json({
-      status: "ok",
+      status,
       time: new Date().toISOString(),
       uptimeSec: Math.floor(process.uptime()),
       timezone: APP_TIMEZONE,
       db: dbCheck?.ok === 1 ? "ok" : "degraded",
       motion: {
-        pendingSyncCount: pending?.count || 0,
-        failedSyncCount: failed?.count || 0
+        pendingSyncCount: pendingCount,
+        failedSyncCount: failedCount
+      },
+      alerts,
+      backup: {
+        dir: BACKUP_DIR,
+        lastBackupDay
       }
     });
   } catch {
@@ -2195,15 +2266,31 @@ function stopMotionRetryWorker() {
   motionRetryTimer = null;
 }
 
+function startBackupWorker() {
+  if (backupTimer) return;
+  backupTimer = setInterval(() => {
+    maybeRunNightlyBackup("interval");
+  }, BACKUP_CHECK_INTERVAL_MS);
+}
+
+function stopBackupWorker() {
+  if (!backupTimer) return;
+  clearInterval(backupTimer);
+  backupTimer = null;
+}
+
 initDb()
   .then(() => {
     const server = app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
       startMotionRetryWorker();
       retryPendingMotionSync();
+      startBackupWorker();
+      maybeRunNightlyBackup("startup");
     });
     const shutdown = () => {
       stopMotionRetryWorker();
+      stopBackupWorker();
       server.close(() => process.exit(0));
     };
     process.on("SIGINT", shutdown);

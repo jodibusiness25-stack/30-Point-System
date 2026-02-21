@@ -103,6 +103,10 @@ LEVEL_EXP_BASE=1.20
 APP_TIMEZONE=America/New_York
 MOTION_API_BASE_URL=https://api.usemotion.com
 SQLITE_PATH=/Users/jodizaky/Documents/masterboard:/server/tracker.sqlite
+BACKUP_DIR=/Users/jodizaky/Documents/masterboard:/server/backups
+BACKUP_CHECK_INTERVAL_MINUTES=30
+MOTION_ALERT_PENDING_THRESHOLD=25
+MOTION_ALERT_FAILED_THRESHOLD=5
 ```
 
 3. Start:
@@ -224,7 +228,12 @@ LEVEL_EXP_BASE=1.15
   - manual retry endpoint: `POST /api/motion/retry`
 - Health and observability:
   - `GET /api/health` includes pending/failed Motion counts
+  - includes alert flags when pending/failed exceed thresholds
+  - includes backup worker status (`backup.lastBackupDay`, `backup.dir`)
   - UI shows Motion sync badge (`OK`, `pending`, `failed`) and per-row sync status
+- Nightly backup snapshots:
+  - server writes one JSON snapshot per day into `BACKUP_DIR`
+  - backup runs automatically on startup and interval checks
 - Data portability:
   - `GET /api/export` returns all logs + settings + player state JSON for backup/migration
 - Client resilience:
@@ -250,6 +259,10 @@ LEVEL_EXP_BASE=1.15
 1. Check `GET /api/health` weekly.
 2. If Motion shows pending/failed items, run `POST /api/motion/retry`.
 3. Backup data periodically with `GET /api/export`.
+4. Before editing/deploying, run:
+```bash
+./scripts/safe-deploy-check.sh
+```
 
 ## Multi-User Isolation
 - The app now uses account auth (register/login) and scopes all data by `userId`.

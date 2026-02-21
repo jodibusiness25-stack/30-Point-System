@@ -21,6 +21,14 @@ services:
         value: America/New_York
       - key: SQLITE_PATH
         value: /var/data/tracker.sqlite
+      - key: BACKUP_DIR
+        value: /var/data/backups
+      - key: BACKUP_CHECK_INTERVAL_MINUTES
+        value: "30"
+      - key: MOTION_ALERT_PENDING_THRESHOLD
+        value: "25"
+      - key: MOTION_ALERT_FAILED_THRESHOLD
+        value: "5"
       - key: AUTH_SECRET
         generateValue: true
       - key: LEVEL_EXP_BASE
