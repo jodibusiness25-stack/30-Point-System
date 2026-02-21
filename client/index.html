@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Daily 30-Point Activity Tracker</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="startupSplash" class="startup-splash hidden" aria-hidden="true">
+      <div class="startup-glow"></div>
+      <div class="startup-core">
+        <div class="startup-rings">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <p>Loading your dashboard</p>
+      </div>
+    </div>
+
+    <section id="authGate" class="auth-gate hidden">
+      <div class="auth-card">
+        <h2>Sign In</h2>
+        <p>Each account has fully separate data.</p>
+        <form id="authForm" class="auth-form">
+          <label>
+            Name
+            <input type="text" id="authDisplayName" minlength="2" maxlength="80" placeholder="Your name" />
+          </label>
+          <label>
+            Email
+            <input type="email" id="authEmail" required />
+          </label>
+          <label>
+            Password
+            <input type="password" id="authPassword" minlength="8" required />
+          </label>
+          <div class="auth-actions">
+            <button type="button" class="icon-btn auth-btn" id="loginBtn" aria-label="Login" title="Login">Login</button>
+            <button type="button" class="icon-btn auth-btn" id="registerBtn" aria-label="Register" title="Register">Register</button>
+          </div>
+          <p id="authMessage" class="message"></p>
+        </form>
+      </div>
+    </section>
+
+    <main id="appShell" class="app-shell hidden">
+      <header class="topbar">
+        <div>
+          <p id="greetingText" class="greeting">Good day</p>
+          <div class="brand-row">
+            <p id="teamBrand" class="brand-roll" aria-label="Team name">Stakks Unit</p>
+            <span id="teamLeadMini" class="mini-role hidden">Team Lead</span>
+          </div>
+        </div>
+        <div class="toggles">
+          <button
+            type="button"
+            class="icon-btn"
+            id="layoutEditBtn"
+            aria-label="Customize widget layout"
+            title="Customize Layout"
+          >
+            <span aria-hidden="true">⧉</span>
+          </button>
+          <button
+            type="button"
+            class="user-chip"
+            id="profileChip"
+            aria-label="Open profile"
+            title="Open profile"
+          >
+            <span id="profileChipInitials" class="user-chip-initials">U</span>
+            <span id="profileChipName" class="user-chip-name">User</span>
+            <span id="profileChipRole" class="role-tag hidden">Team Lead</span>
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
+            id="profileBtn"
+            aria-label="Open profile"
+            title="Profile"
+          >
+            <span aria-hidden="true">◐</span>
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
+            id="logoutBtn"
+            aria-label="Logout"
+            title="Logout"
+          >
+            <span aria-hidden="true">⎋</span>
+          </button>
+          <label class="toggle-wrap" for="darkToggle">
+            <span>Dark</span>
+            <input id="darkToggle" type="checkbox" />
+          </label>
+          <label class="toggle-wrap" for="compactToggle">
+            <span>Compact</span>
+            <input id="compactToggle" type="checkbox" />
+          </label>
+        </div>
+      </header>
+
+      <form id="logForm" class="layout">
+        <section class="card xp-card widget-card" data-widget-id="xp">
+          <div class="card-head">
+            <label class="date-label">
+              <span>Date</span>
+              <input type="date" id="logDate" name="logDate" required />
+            </label>
+            <span id="motionSyncBadge" class="sync-badge">Motion Sync: OK</span>
+            <span id="autosaveBadge" class="sync-badge">Autosave: Idle</span>
+            <div class="actions">
+              <button
+                type="submit"
+                class="icon-btn"
+                id="saveBtn"
+                aria-label="Save daily log"
+                title="Save"
+              >
+                <span aria-hidden="true">✓</span>
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                id="resetBtn"
+                aria-label="Reset form values"
+                title="Reset"
+              >
+                <span aria-hidden="true">↺</span>
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                id="historyBtn"
+                aria-label="Toggle history table"
+                title="History"
+              >
+                <span aria-hidden="true">☰</span>
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
+                id="sessionsBtn"
+                aria-label="Toggle activity sessions"
+                title="Sessions"
+              >
+                <span aria-hidden="true">◍</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="xp-summary">
+            <div>
+              <p class="label">Daily Points</p>
+              <p class="value"><span id="totalXP">0</span> / 30</p>
+            </div>
+            <div>
+              <p class="label">Lifetime Points</p>
+              <p class="value" id="lifetimeXP">0</p>
+            </div>
+            <div>
+              <p class="label">Level</p>
+              <p class="value" id="levelLabel">1</p>
+            </div>
+            <div>
+              <p class="label">Dial Ratio</p>
+              <p class="value" id="ratioDisplay"></p>
+            </div>
+          </div>
+
+          <div class="progress-cluster">
+            <div id="strataContainer" class="strata-container" aria-hidden="true"></div>
+            <div class="bar thin">
+              <div id="dailyProgressFill" class="bar-fill"></div>
+            </div>
+            <div class="level-row">
+              <span id="levelProgressText">Level 1 • 0 / 30</span>
+              <div class="bar thin level">
+                <div id="levelProgressFill" class="bar-fill"></div>
+                <div id="levelShimmer" class="level-shimmer"></div>
+              </div>
+            </div>
+            <div class="dial-goal-wrap">
+              <div class="dial-goal-head">
+                <span id="dialGoalStatus">Dial Goal: Not set</span>
+                <span id="dialGoalMeta"></span>
+              </div>
+              <div id="dialStrataContainer" class="strata-container" aria-hidden="true"></div>
+              <div class="bar thin">
+                <div id="dialGoalFill" class="bar-fill dial"></div>
+              </div>
+            </div>
+            <div class="appt-goal-wrap">
+              <div class="dial-goal-head">
+                <span id="apptDailyStatus">Daily Appointments: 0 / 0</span>
+                <span id="apptDailyMeta"></span>
+              </div>
+              <div class="bar thin">
+                <div id="apptDailyFill" class="bar-fill appt"></div>
+              </div>
+              <div class="dial-goal-head">
+                <span id="apptWeeklyStatus">Weekly Appointments: 0 / 0</span>
+                <span id="apptWeeklyMeta"></span>
+              </div>
+              <div class="bar thin">
+                <div id="apptWeeklyFill" class="bar-fill appt"></div>
+              </div>
+            </div>
+            <p id="statusText" class="status-text">Red (0)</p>
+          </div>
+          <div id="levelToastAnchor" class="toast-anchor"></div>
+          <p id="message" class="message"></p>
+        </section>
+
+        <section class="card widget-card" data-widget-id="metrics">
+          <h2>Trackers</h2>
+          <div id="metricGrid" class="metric-grid"></div>
+        </section>
+
+        <section id="activityWidget" class="card activity-widget activity-widget--compact widget-card" data-widget-id="activity">
+          <div class="activity-head">
+            <div>
+              <h2>Shared Activity</h2>
+              <p id="activityModeLabel" class="sub">Start a session with teammates</p>
+            </div>
+            <button type="button" class="icon-btn" id="startSessionBtn" aria-label="Start shared session" title="Start session">
+              <span aria-hidden="true">▶</span>
+            </button>
+          </div>
+          <div class="friend-bar">
+            <label>
+              Add Teammate (email)
+              <input type="email" id="friendEmailInput" placeholder="teammate@email.com" />
+            </label>
+            <button type="button" class="icon-btn" id="sendFriendRequestBtn" aria-label="Send teammate request" title="Send teammate request">
+              <span aria-hidden="true">✉</span>
+            </button>
+          </div>
+          <div id="friendRequests" class="incoming-invites"></div>
+          <div id="incomingInvites" class="incoming-invites"></div>
+          <div id="activeSessionPanel" class="active-session hidden">
+            <div class="active-session-head">
+              <div>
+                <p class="label">Session</p>
+                <p id="activeSessionName" class="value">-</p>
+              </div>
+              <div>
+                <p class="label">Elapsed</p>
+                <p id="activeSessionTimer" class="value">00:00:00</p>
+              </div>
+            </div>
+            <div class="active-meta">
+              <span id="activeSessionOwnerTag" class="sync-badge">Owner</span>
+              <span id="activeSessionStartTime" class="sync-badge">Started -</span>
+            </div>
+            <div class="session-controls">
+              <label>
+                Invite Teammate
+                <select id="inviteFriendSelect"></select>
+              </label>
+              <button type="button" class="icon-btn" id="inviteFriendBtn" aria-label="Invite teammate" title="Invite teammate">
+                <span aria-hidden="true">＋</span>
+              </button>
+              <button type="button" class="icon-btn" id="leaveSessionBtn" aria-label="Leave session" title="Leave session">
+                <span aria-hidden="true">↩</span>
+              </button>
+              <button type="button" class="icon-btn" id="stopSessionBtn" aria-label="Stop session" title="Stop session">
+                <span aria-hidden="true">■</span>
+              </button>
+            </div>
+            <div class="session-columns">
+              <div>
+                <p class="label">Participants</p>
+                <ul id="sessionParticipantsList" class="session-list"></ul>
+              </div>
+              <div>
+                <p class="label">Live Leaderboard</p>
+                <ol id="sessionLeaderboardList" class="session-list"></ol>
+              </div>
+            </div>
+          </div>
+          <p id="activityMessage" class="message"></p>
+          <div id="networkPanel" class="session-columns">
+            <div>
+              <p class="label">Connections</p>
+              <ul id="networkList" class="session-list"></ul>
+            </div>
+          <div>
+            <div id="networkPreview" class="invite-row muted">Tap a name in Connections to view profile.</div>
+          </div>
+        </div>
+      </section>
+
+        <section class="card support-grid widget-card" data-widget-id="support">
+          <label>
+            Daily Dial Goal
+            <input type="number" id="dialGoal" name="dialGoal" min="0" value="100" />
+          </label>
+          <label>
+            Daily Appointment Goal
+            <input type="number" id="dailyAppointmentGoal" min="0" value="3" />
+          </label>
+          <label>
+            Weekly Appointment Goal
+            <input type="number" id="weeklyAppointmentGoal" min="0" value="15" />
+          </label>
+          <label>
+            FYC Target
+            <input type="number" id="fycTarget" name="fycTarget" min="0" value="0" />
+          </label>
+          <label>
+            FYC Completed
+            <input type="number" id="fycCompleted" name="fycCompleted" min="0" value="0" />
+          </label>
+          <label class="notes">
+            FYC Notes
+            <textarea id="fycNotes" name="fycNotes" rows="2" placeholder="Optional notes"></textarea>
+          </label>
+        </section>
+
+        <section id="calcPanel" class="card calc-panel-inline widget-card" data-widget-id="calculator" aria-hidden="false">
+          <header class="calc-head">
+            <strong>Quick Calc</strong>
+          </header>
+          <div class="calc-display-wrap">
+            <input id="calcDisplay" class="calc-display" type="text" inputmode="decimal" placeholder="0" />
+          </div>
+          <div class="calc-keypad">
+            <button type="button" class="calc-key" data-calc="7">7</button>
+            <button type="button" class="calc-key" data-calc="8">8</button>
+            <button type="button" class="calc-key" data-calc="9">9</button>
+            <button type="button" class="calc-key op" data-calc="/">÷</button>
+            <button type="button" class="calc-key" data-calc="4">4</button>
+            <button type="button" class="calc-key" data-calc="5">5</button>
+            <button type="button" class="calc-key" data-calc="6">6</button>
+            <button type="button" class="calc-key op" data-calc="*">×</button>
+            <button type="button" class="calc-key" data-calc="1">1</button>
+            <button type="button" class="calc-key" data-calc="2">2</button>
+            <button type="button" class="calc-key" data-calc="3">3</button>
+            <button type="button" class="calc-key op" data-calc="-">−</button>
+            <button type="button" class="calc-key" data-calc="0">0</button>
+            <button type="button" class="calc-key" data-calc=".">.</button>
+            <button type="button" class="calc-key equals" id="calcEqualsBtn">=</button>
+            <button type="button" class="calc-key op" data-calc="+">+</button>
+          </div>
+          <div class="calc-actions">
+            <button type="button" class="icon-btn" id="calcClearBtn" aria-label="Clear calculator" title="Clear">
+              <span aria-hidden="true">C</span>
+            </button>
+          </div>
+          <div class="calc-history-wrap">
+            <p>Recent (5 max)</p>
+            <ul id="calcHistory" class="calc-history"></ul>
+          </div>
+        </section>
+      </form>
+
+      <section id="historyCard" class="card history-card hidden">
+        <h2>History</h2>
+        <div class="table-wrap">
+          <table id="historyTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Points</th>
+                <th>Contacts</th>
+                <th>Dials</th>
+                <th>Dial Goal</th>
+                <th>Goal Hit</th>
+                <th>Ratio</th>
+                <th>FYC</th>
+                <th>Week (Mon)</th>
+                <th>Sync</th>
+                <th>Rev</th>
+                <th>Motion Task</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="sessionsHistoryCard" class="card history-card hidden">
+        <h2>Activity Sessions</h2>
+        <div class="table-wrap">
+          <table id="sessionsTable">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Ended</th>
+                <th>Duration</th>
+                <th>Participants</th>
+                <th>Final Leaderboard</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="calendar-head">
+          <h2>Activity Calendar</h2>
+          <div class="calendar-actions">
+            <button type="button" class="icon-btn" id="calendarPrevBtn" aria-label="Previous month" title="Previous month">
+              <span aria-hidden="true">‹</span>
+            </button>
+            <span id="calendarMonthLabel" class="calendar-month">Month</span>
+            <button type="button" class="icon-btn" id="calendarNextBtn" aria-label="Next month" title="Next month">
+              <span aria-hidden="true">›</span>
+            </button>
+            <button type="button" class="icon-btn" id="calendarTodayBtn" aria-label="Jump to today" title="Today">
+              <span aria-hidden="true">•</span>
+            </button>
+          </div>
+        </div>
+        <div class="ring-legend">
+          <span><i class="dot xp"></i> Points</span>
+          <span><i class="dot dial"></i> Dials</span>
+          <span><i class="dot appt"></i> Appointments</span>
+          <span><i class="dot hit"></i> Goal Hit Glow</span>
+        </div>
+        <div class="calendar-weekdays">
+          <span>Mon</span>
+          <span>Tue</span>
+          <span>Wed</span>
+          <span>Thu</span>
+          <span>Fri</span>
+          <span>Sat</span>
+          <span>Sun</span>
+        </div>
+        <div id="calendarGrid" class="calendar-grid"></div>
+        <div id="calendarDetail" class="calendar-detail">Select a day to view quick activity details.</div>
+        <div id="calendarSessionsDetail" class="calendar-sessions-detail"></div>
+      </section>
+    </main>
+
+    <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
+    <aside id="metricDrawer" class="drawer hidden" aria-hidden="true">
+      <header class="drawer-head">
+        <div>
+          <h3 id="drawerTitle">Metric</h3>
+          <p id="drawerSub">Analytics</p>
+        </div>
+        <button
+          type="button"
+          class="icon-btn"
+          id="drawerCloseBtn"
+          aria-label="Close analytics drawer"
+          title="Close"
+        >
+          <span aria-hidden="true">✕</span>
+        </button>
+      </header>
+
+      <div class="period-controls">
+        <button type="button" class="period-btn active" data-period="7d">7D</button>
+        <button type="button" class="period-btn" data-period="14d">14D</button>
+        <button type="button" class="period-btn" data-period="30d">30D</button>
+        <button type="button" class="period-btn" data-period="this_week">This Week</button>
+        <button type="button" class="period-btn" data-period="this_month">This Month</button>
+        <button type="button" class="period-btn" data-period="ytd">YTD</button>
+        <button type="button" class="period-btn" data-period="custom">Custom</button>
+      </div>
+
+      <div id="customRangeWrap" class="custom-range hidden">
+        <label>
+          From
+          <input type="date" id="customFrom" />
+        </label>
+        <label>
+          To
+          <input type="date" id="customTo" />
+        </label>
+        <button type="button" class="icon-btn" id="applyCustomBtn" aria-label="Apply custom range" title="Apply">
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+
+      <section class="chart-card">
+        <h4>Daily Counts</h4>
+        <canvas id="lineChart" height="130"></canvas>
+      </section>
+      <section class="chart-card">
+        <h4>Daily Points</h4>
+        <canvas id="barChart" height="130"></canvas>
+      </section>
+      <section class="chart-card">
+        <h4>Points Share</h4>
+        <canvas id="donutChart" height="130"></canvas>
+      </section>
+    </aside>
+
+    <div id="profileBackdrop" class="drawer-backdrop hidden"></div>
+    <aside id="profileDrawer" class="drawer profile-drawer hidden" aria-hidden="true">
+      <header class="drawer-head">
+        <div>
+          <h3>User Profile</h3>
+          <p id="profileSummaryText">Manage account and dashboard settings</p>
+        </div>
+        <button
+          type="button"
+          class="icon-btn"
+          id="profileCloseBtn"
+          aria-label="Close profile drawer"
+          title="Close"
+        >
+          <span aria-hidden="true">✕</span>
+        </button>
+      </header>
+
+      <section class="chart-card profile-section">
+        <h4>Account</h4>
+        <label>
+          Display Name
+          <input type="text" id="profileDisplayName" minlength="2" maxlength="80" />
+        </label>
+        <label>
+          Email
+          <input type="email" id="profileEmail" readonly />
+        </label>
+        <p id="profileTeamLine" class="small-muted"></p>
+        <p id="profileRoleLine" class="small-muted"></p>
+        <p id="profileJoinedAt" class="small-muted"></p>
+      </section>
+
+      <section class="chart-card profile-section">
+        <h4>Team Roles</h4>
+        <p id="teamLeadSlot" class="small-muted">Team Lead: -</p>
+        <p id="teamPartnerSlot" class="small-muted">Partner: Unassigned</p>
+        <div id="teamLeadAddMember" class="hidden">
+          <label>
+            Add Member To Team (email)
+            <input type="email" id="addMemberEmail" placeholder="person@email.com" />
+          </label>
+          <div class="profile-actions">
+            <button type="button" class="icon-btn" id="addMemberBtn" aria-label="Add member to team" title="Add member">
+              <span aria-hidden="true">⊕</span>
+            </button>
+          </div>
+        </div>
+        <div id="teamRoleManager" class="hidden">
+          <label>
+            Assign Role To (email)
+            <input type="email" id="assignRoleEmail" placeholder="teammate@email.com" />
+          </label>
+          <label>
+            Role
+            <select id="assignRoleSelect">
+              <option value="Member">Member</option>
+              <option value="Partner">Partner</option>
+              <option value="Team Lead">Team Lead</option>
+            </select>
+          </label>
+          <div class="profile-actions">
+            <button type="button" class="icon-btn" id="assignRoleBtn" aria-label="Assign team role" title="Assign role">
+              <span aria-hidden="true">⇆</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="chart-card profile-section">
+        <h4>Create Team</h4>
+        <p class="small-muted">Create a new team and become its Partner.</p>
+        <label>
+          Team Name
+          <input type="text" id="createTeamName" maxlength="80" placeholder="Your Team Name" />
+        </label>
+        <div class="profile-actions">
+          <button type="button" class="icon-btn" id="createTeamBtn" aria-label="Create team" title="Create team">
+            <span aria-hidden="true">＋</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="chart-card profile-section">
+        <h4>Level</h4>
+        <p id="profileLevelLine" class="small-muted">Level 1</p>
+        <p id="profileLifetimeLine" class="small-muted">Lifetime Points: 0</p>
+      </section>
+
+      <section class="chart-card profile-section">
+        <h4>Settings</h4>
+        <label>
+          Timezone
+          <input type="text" id="profileTimezone" placeholder="America/New_York" />
+        </label>
+        <label>
+          Default Dial Goal
+          <input type="number" id="profileDialGoal" min="0" />
+        </label>
+        <label>
+          Daily Appointment Goal
+          <input type="number" id="profileDailyApptGoal" min="0" />
+        </label>
+        <label>
+          Weekly Appointment Goal
+          <input type="number" id="profileWeeklyApptGoal" min="0" />
+        </label>
+        <label class="inline-toggle">
+          <input type="checkbox" id="profileShowStats" />
+          <span>Show my current stats on my public profile</span>
+        </label>
+        <label>
+          Motion API Key
+          <input type="password" id="profileMotionApiKey" placeholder="Leave blank to keep existing" />
+        </label>
+        <label>
+          Motion Project ID
+          <input type="text" id="profileMotionProjectId" />
+        </label>
+      </section>
+
+      <section class="chart-card profile-section">
+        <h4>Dashboard Management</h4>
+        <p id="profileDashboardStats" class="small-muted"></p>
+        <div class="profile-actions">
+          <button type="button" class="icon-btn" id="profileSaveBtn" aria-label="Save profile" title="Save profile">
+            <span aria-hidden="true">✓</span>
+          </button>
+          <button type="button" class="icon-btn" id="profileRetryMotionBtn" aria-label="Retry Motion sync" title="Retry Motion">
+            <span aria-hidden="true">↻</span>
+          </button>
+          <button type="button" class="icon-btn" id="profileExportBtn" aria-label="Export my data" title="Export">
+            <span aria-hidden="true">⇩</span>
+          </button>
+        </div>
+        <p id="profileMessage" class="message small-muted" aria-live="polite"></p>
+      </section>
+    </aside>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="./charts.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
