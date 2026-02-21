@@ -62,6 +62,7 @@ const CALC_HISTORY_KEY = "dashboard_calc_history_v1";
 const AUTH_TOKEN_KEY = "dashboard_auth_token_v1";
 const STARTUP_SEEN_KEY = "dashboard_startup_seen_v1";
 const WIDGET_LAYOUT_KEY = "dashboard_widget_layout_v1";
+const QUICK_NOTES_KEY = "dashboard_quick_notes_v1";
 
 const appShell = document.getElementById("appShell");
 const authGate = document.getElementById("authGate");
@@ -89,6 +90,7 @@ const startupSplash = document.getElementById("startupSplash");
 const form = document.getElementById("logForm");
 const metricGrid = document.getElementById("metricGrid");
 const dateInput = document.getElementById("logDate");
+const quickNotesEl = document.getElementById("quickNotes");
 const totalXPEl = document.getElementById("totalXP");
 const lifetimeXPEl = document.getElementById("lifetimeXP");
 const levelLabelEl = document.getElementById("levelLabel");
@@ -216,6 +218,7 @@ const addMemberBtn = document.getElementById("addMemberBtn");
 const chartManager = window.DashboardCharts.createManager();
 let draggedWidgetId = null;
 let layoutResizeObserver = null;
+let quickNoteSaveTimer = null;
 
 const canvasMap = {
   line: document.getElementById("lineChart"),
@@ -608,6 +611,49 @@ function setupThemeModeEvents() {
     localStorage.setItem("theme_compact", on ? "1" : "0");
     document.body.classList.toggle("compact", on);
   });
+}
+
+function getQuickNotesMap() {
+  try {
+    const raw = localStorage.getItem(QUICK_NOTES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function setQuickNotesMap(notesMap) {
+  try {
+    localStorage.setItem(QUICK_NOTES_KEY, JSON.stringify(notesMap));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function quickNoteDateKey(isoDate) {
+  const userId = Number(state.auth.user?.id || 0) || "anon";
+  return `${userId}|${isoDate}`;
+}
+
+function loadQuickNoteForDate(isoDate) {
+  if (!quickNotesEl || !isValidLogDate(isoDate)) return;
+  const notesMap = getQuickNotesMap();
+  quickNotesEl.value = String(notesMap[quickNoteDateKey(isoDate)] || "");
+}
+
+function saveQuickNoteForDate(isoDate, text) {
+  if (!isValidLogDate(isoDate)) return;
+  const notesMap = getQuickNotesMap();
+  const key = quickNoteDateKey(isoDate);
+  const value = String(text || "").trim().slice(0, 2000);
+  if (!value) {
+    delete notesMap[key];
+  } else {
+    notesMap[key] = value;
+  }
+  setQuickNotesMap(notesMap);
 }
 
 function widgetCards() {
@@ -1063,45 +1109,19 @@ function applyStatus(totalXP) {
 
 function updatePointsPie(metricPoints, totalXP) {
   if (!pointsPieEl) return;
-  if (!totalXP || totalXP <= 0) {
-    pointsPieEl.style.background =
-      "radial-gradient(circle at center, color-mix(in srgb, var(--card) 96%, var(--bg)) 42%, transparent 43%), conic-gradient(#d4af37 0deg, #d4af37 360deg)";
-    pointsPieEl.title = "No points yet";
-    return;
-  }
-  const css = getComputedStyle(document.body);
-  const v = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
-  const palette = [
-    "#d4af37",
-    v("--accent", "#34c6b3"),
-    v("--primary-2", "#2f66b8"),
-    v("--warning", "#f3b15a"),
-    v("--success", "#49c887"),
-    v("--primary", "#1b315a"),
-    v("--muted", "#7b8fb6")
-  ];
-  const entries = METRICS.map((metric, idx) => ({
-    label: metric.label,
-    value: Math.max(0, Number(metricPoints[metric.key] || 0)),
-    color: palette[idx % palette.length]
-  })).filter((item) => item.value > 0);
-  if (!entries.length) {
-    pointsPieEl.title = "No points yet";
-    return;
-  }
-
-  let cursor = 0;
-  const slices = entries
-    .map((item) => {
-      const start = cursor;
-      const sweep = (item.value / totalXP) * 360;
-      cursor += sweep;
-      return `${item.color} ${start.toFixed(2)}deg ${cursor.toFixed(2)}deg`;
-    })
-    .join(", ");
+  const filled = Math.max(0, Math.min(DAILY_GOAL_XP, Number(totalXP || 0)));
+  const filledDeg = (filled / DAILY_GOAL_XP) * 360;
   pointsPieEl.style.background =
-    `radial-gradient(circle at center, color-mix(in srgb, var(--card) 96%, var(--bg)) 42%, transparent 43%), conic-gradient(${slices})`;
-  pointsPieEl.title = entries.map((item) => `${item.label}: ${item.value} pts`).join(" • ");
+    `radial-gradient(circle at center, color-mix(in srgb, var(--card) 96%, var(--bg)) 42%, transparent 43%), conic-gradient(#d4af37 0deg ${filledDeg.toFixed(2)}deg, rgba(120,130,145,0.25) ${filledDeg.toFixed(2)}deg 360deg)`;
+
+  const entries = METRICS.map((metric) => ({
+    label: metric.label,
+    value: Math.max(0, Number(metricPoints[metric.key] || 0))
+  })).filter((item) => item.value > 0);
+  const breakdown = entries.length
+    ? entries.map((item) => `${item.label}: ${item.value} pts`).join(" • ")
+    : "No points yet";
+  pointsPieEl.title = `${filled}/${DAILY_GOAL_XP} points • ${breakdown}`;
 }
 
 function renderStrata(totalXP) {
@@ -2549,6 +2569,7 @@ function resetFormForDate(targetDate, options = {}) {
     state.settings.defaultWeeklyAppointmentGoal ?? 15
   );
   document.getElementById("fycNotes").value = "";
+  loadQuickNoteForDate(targetDate);
   updateLiveUI({ markDirty: false });
   if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
   state.isDirty = false;
@@ -3065,7 +3086,8 @@ function setupFormEvents() {
   form.addEventListener("input", (event) => {
     if (
       event.target.id === "dailyAppointmentGoal" ||
-      event.target.id === "weeklyAppointmentGoal"
+      event.target.id === "weeklyAppointmentGoal" ||
+      event.target.id === "quickNotes"
     ) {
       updateLiveUI({ markDirty: false });
       return;
@@ -3135,8 +3157,18 @@ function setupFormEvents() {
     if (!state.isDirty) {
       applySelectedDateFromHistory();
     }
+    loadQuickNoteForDate(dateInput.value);
     renderCalendar();
   });
+  if (quickNotesEl) {
+    quickNotesEl.addEventListener("input", () => {
+      const activeDate = String(dateInput.value || state.settings.today || getTrackerTodayISO());
+      if (quickNoteSaveTimer) clearTimeout(quickNoteSaveTimer);
+      quickNoteSaveTimer = setTimeout(() => {
+        saveQuickNoteForDate(activeDate, quickNotesEl.value);
+      }, 200);
+    });
+  }
   window.addEventListener("beforeunload", (event) => {
     if (!state.isDirty) return;
     event.preventDefault();
@@ -3210,6 +3242,7 @@ async function bootstrapDashboard() {
   if (isValidLogDate(dateInput.value)) {
     setCalendarFromDate(dateInput.value);
   }
+  loadQuickNoteForDate(dateInput.value || baseToday);
   updateLiveUI();
   if (state.autosaveTimer) clearTimeout(state.autosaveTimer);
   state.isDirty = false;

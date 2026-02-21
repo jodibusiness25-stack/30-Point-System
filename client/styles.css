@@ -693,6 +693,30 @@ textarea {
   min-width: 0;
 }
 
+.quick-note-wrap {
+  margin-top: 2px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
+  border-radius: 12px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--card) 94%, var(--bg));
+}
+
+.quick-note-wrap label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#quickNotes {
+  min-height: 72px;
+  max-height: 140px;
+  resize: vertical;
+  border-radius: 10px;
+  padding: 8px;
+  font-size: 12px;
+}
+
 .progress-calc-slot {
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
